@@ -1,0 +1,162 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2020
+
+% ready for submission
+% \usepackage{neurips_2020}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+    \usepackage[preprint]{neurips_2020}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2020}
+
+% to avoid loading the natbib package, add option nonatbib:
+    %  \usepackage[nonatbib]{neurips_2020}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{amsmath}
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+
+\title{Forecasting with Randomized Loss Backpropagation}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+\author{%
+  Olivier~Sprangers \\
+  AIRLab, NL \\
+  University of Amsterdam, NL\\
+  \texttt{o.r.sprangers@uva.nl} \\
+  \And
+  Sebastian~Schelter \\
+  University of Amsterdam, NL \\
+  \texttt{s.schelter@uva.nl} \\
+  \And
+  Maarten~de~Rijke \\
+  University of Amsterdam, NL \\
+  \texttt{m.derijke@uva.nl} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  Large-scale forecasting for complex systems is usually done using ML using scalar losses. In this work, we demonstrate that using randomized aggregated losses improves forecasting performance. More specifically, study the setting where commonly scalar loss functions are used. In our work, we demonstrate that using aggregate losses to optimize individual forecasts improves forecasting performance of an arbitrary collection of forecasts for these time series. Such a collection may include a hierarchical setting, where forecasting practioners are interested in obtaining coherent forecasts for a set of hierarchical aggregations of time series.
+
+\end{abstract}
+
+\section{Introduction}
+  Contemporary large-scale forecasting applications require forecasting many time series concurrently \cite{bose_probabilistic_2017}. Often, there are dependencies between these individual time series. For example, there may be a hierarchical dependency, where individual time series may be aggregated into increasingly larger aggregations that are meaningful from the perspective of the forecasting application, such as individual product demand that may be aggregated into department demand, to store demand, to regional demand. Another example is dependencies between products themselves, where demand for product A (e.g. ) is correlated with the demand of product B. Ideally, when creating a forecast model for such a setting, we would like to take into account all these dependencies. This is a hard problem because of two reasons. First, taking into account correlations between individual products suffers from the curse of dimensionality; in the full 'dense' setting for every additional individual time series we need to compute its correlation with all other time series. Second, forecasting practitioners are commonly interested in aggregations too, for example in the case of hierarchical forecasting \cite{hyndman_optimal_2011}. Traditional methods commonly solve the first issue by using some approximation of the correlation matrix (e.g. a sparse matrix - add refs). The second issue is commonly solved by adding an explicit forecast reconciliation step when creating hierarchical forecasts. In this work, we show that we can solve both issues using randomized aggregated loss backpropagation. First, we formalize the notion of a randomized aggregated loss in time series problems. Then, we theoretically show that using randomized aggregated loss reduces bias and variance in the recursive forecasting setting. We empirically verify our theoretical result on a set of common hierarchical forecasting benchmarks and show that our solution improves forecasting performance up to [x\%]. Finally, we show that randomized aggregated losses can yield forecasts that are better coherent across arbitrary aggregations, even when comparing against methods that specifically aim to optimize for specific aggregations, such as in hierarchical forecasting. The main contributions of this paper are:
+  \begin{enumerate}
+    \item We formalize the notion of randomized aggregate loss for large-scale time series problems
+    \item We theoretically show that using a randomized aggregated loss function reduces bias and variance in both the direct and recursive forecasting setting
+    \item We empirically demonstrate that a randomized aggregated loss improves hierarchical forecasting performance up to [x\%] compared to using a scalar loss function
+    \item We provide a pip-installable Python package that allows practitioners to easily use our aggregated loss framework.
+  \end{enumerate}
+
+\section{Related work}
+  \label{sec:relwork}
+  \paragraph{Hierarchical Forecasting} Aggregated forecasts are commonly considered in the context of hierarchical forecasting \cite{hyndman_optimal_2011}. In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure \cite{hyndman_optimal_2011,  hyndman_fast_2016, taieb_coherent_2017, ben_taieb_regularized_2019, wickramasuriya_optimal_2019}. Limitations of these approaches is that they require a post-processing step and they consider a fixed aggregation structure. In our work, we demonstrate how using dynamic aggregations during training can improve forecasts at various aggregation levels. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts. However, the hierarchical structure of the time series problem is considered fixed in SHARQ whereas we consider a structure that changes dynamically during training, and we will show that it is the dynamic changing of the structure that provides the additional benefits in terms of metrics improvement over other methods. 
+
+  The benefit of forecasting with temporal hierarchies has been studied by \cite{athanasopoulos_forecasting_2017}. However, this work considers only fixed temporal hierarchies and aims to produce forecasts on multiple hierarchies to improve individual forecasts. In our work, we do not create forecasts at higher aggregations but only use higher aggregation gradient information during the training of our model.
+
+  \paragraph{Graph Neural Networks} Our work has connections to link-prediction in Graph Neural Networks (GNNs). 
+
+  \paragraph{Vector Regression} 
+
+
+\section{Background}
+  \label{sec:background}
+  We consider the problem of forecasting for a set of time series, which we can formalize as follows:
+
+  Define aggregation
+
+\section{Randomized Aggregated Loss}
+  \label{sec:ralf}
+  In this section, we first introduce the notion of aggregated loss functions in time series problems. Then, we derive our main theoretical result, which shows how randomized aggregated loss backpropagation can reduce bias and variance in our forecasting problem setting. Finally, we analyse the computational complexity of our proposed loss function.
+
+  \subsection{Randomized Aggregated Loss}
+    \label{subsec:ral}
+    In forecasting problems, we typically aim to minimize a loss function \(f(\cdot)\) over a set of time series \(N\) where each time series may consist of \(T\) time steps: 
+    \begin{equation} \label{eq:scalarloss}
+      L = \sum^N_{i=1} \sum_{t=t_0}^{T} f(\cdot). 
+    \end{equation}
+    For example, for the \textit{squared error loss} this reads:
+    \begin{equation}
+      L = \sum^N_{i=1} \sum_{t=t_0}^{T} (y_{i,t} - \hat{y}_{i, t})^2,
+    \end{equation}
+    and we can obtain the often-used \textit{mean squared error loss} by dividing the loss by \(NT\). We now define a general \textit{aggregated loss} as:
+    \begin{equation} \label{eq:aggregatedloss}
+      L = \sum^{N + S}_{i=1} \sum_{t=t_0}^{T} w_{i, t} f(\cdot),
+    \end{equation}  
+    where \(S\) denotes the number of aggregations that we consider and \(w_i\) is a scalar weight associated with each individual time series or its aggregations. A loss function of the form \eqref{eq:aggregatedloss} was used to evaluate forecasts in the recent M5 hierarchical forecasting competition \cite{makridakis_m5_2020}. We define a \textit{randomized aggregated loss} as a loss of the form \eqref{eq:aggregatedloss} where the aggregations used to compute the loss are selected uniformly at random during training. In Figure~\ref{fig:aggexamples}, we provide a set of examples. In Figure The key insight of our paper is that we can obtain more accurate forecasts, with lower bias and variance, \textit{by considering random aggregations during the training of our forecasting model rather than no aggregations or fixed (hierarchical) aggregations}.
+
+  \subsection{Bias and Variance Reduction}
+    \label{subsec:biasandvariance}
+
+  \subsection{Computational Complexity}
+    \label{subsec:complexity}
+
+\section{Experiments}
+  \label{sec:experiments}
+  In this section we empirically verify our theoretical results.\footnote{The code to reproduce our experiments can be found at LINK} First, we demonstrate how using our randomized aggregated loss improves forecasting performance by up to [x\%]. Then, we show that using our aggregated loss results in a reduction of bias and variance, as suggested by our theoretical result.
+
+  \subsection{Datasets}
+    \label{subsec:datasets}
+
+  \subsection{Results}
+    \label{subsec:results}
+
+\section{Discussion}
+  \label{sec:discussion}
+
+
+\section{Conclusion}
+  \label{sec:conclusion}
+
+
+\section*{Broader Impact}
+
+  Positive: better forecasts
+
+  Negative: implicitly our system may build on dependencies between time series that may be considered biased, or could potentially be discriminatory. 
+
+\begin{ack}
+  This research was (partially) funded by the Hybrid Intelligence Center, a 10-year program funded by the Dutch Ministry of Education, Culture and Science through the Netherlands Organisation for Scientific Research.\footnote{\url{https://www.hybrid-intelligence-centre.nl/}}
+
+  All content represents the opinion of the authors, which is not necessarily shared or endorsed by their respective employers and/or sponsors.
+  
+  We thank the reviewers for their constructive feedback and help on improving our work. 
+
+\end{ack}
+
+\bibliographystyle{plainnat} 
+\bibliography{lib}
+
+\end{document}

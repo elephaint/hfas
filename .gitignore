@@ -129,8 +129,24 @@ dmypy.json
 .pyre/
 
 # Folders
-/datasets
+datasets/
+.vscode/
+**/_old
 
 # Files
 *.csv
 *.parquet
+
+# Latex
+*.aux
+*.log
+*.toc
+*.pdf
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.snm
+*.vrb
+*.nav
+*.out

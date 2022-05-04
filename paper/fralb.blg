@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99d (TeX Live 2022)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: fralb.aux
+The style file: plainnat.bst
+Database file #1: lib.bib
+Warning--empty publisher in makridakis_m5_2020
+You've used 9 entries,
+            2773 wiz_defined-function locations,
+            663 strings with 7164 characters,
+and the built_in function-call counts, 5465 in all, are:
+= -- 512
+> -- 333
+< -- 4
++ -- 111
+- -- 102
+* -- 493
+:= -- 821
+add.period$ -- 41
+call.type$ -- 9
+change.case$ -- 60
+chr.to.int$ -- 9
+cite$ -- 19
+duplicate$ -- 228
+empty$ -- 403
+format.name$ -- 113
+if$ -- 1154
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 10
+newline$ -- 65
+num.names$ -- 36
+pop$ -- 111
+preamble$ -- 1
+purify$ -- 52
+quote$ -- 0
+skip$ -- 177
+stack$ -- 0
+substring$ -- 255
+swap$ -- 51
+text.length$ -- 3
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 94
+warning$ -- 1
+while$ -- 46
+width$ -- 0
+write$ -- 149
+(There was 1 warning)
