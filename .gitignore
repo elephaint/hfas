@@ -138,6 +138,7 @@ datasets/
 *.parquet
 *.pkl
 *.docx
+*.model
 
 # Latex
 *.aux
