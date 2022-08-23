@@ -136,6 +136,8 @@ datasets/
 # Files
 *.csv
 *.parquet
+*.pkl
+*.docx
 
 # Latex
 *.aux
@@ -150,3 +152,4 @@ datasets/
 *.vrb
 *.nav
 *.out
+*.fls

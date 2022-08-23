@@ -19,8 +19,6 @@
 #%% Import packages
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-import numpy as np
-from pathlib import Path
 pd.set_option('display.width', 800)
 pd.set_option('display.max_columns', 15)
 #%% Reduce memory
@@ -51,11 +49,11 @@ def reduce_mem(df):
             
     return df
 #%% 1) Read datasets
-df_calendar = pd.read_csv(f'{Path(__file__).parent.parent.absolute()}/datasets/m5/calendar.csv').fillna("None").convert_dtypes() # NaN's only in event fields, so fill with None string
-df_sales = pd.read_csv(f'{Path(__file__).parent.parent.absolute()}/datasets/m5/sales_train_evaluation.csv').convert_dtypes()
-df_prices = pd.read_csv(f'{Path(__file__).parent.parent.absolute()}/datasets/m5/sell_prices.csv').convert_dtypes()
+df_calendar = pd.read_csv('src/exp_m5/data/calendar.csv').fillna("None").convert_dtypes() # NaN's only in event fields, so fill with None string
+df_sales = pd.read_csv('src/exp_m5/data/sales_train_evaluation.csv').convert_dtypes()
+df_prices = pd.read_csv('src/exp_m5/data/sell_prices.csv').convert_dtypes()
 #%% 2) Label encoding of categorical information sales data
-#https://stackoverflow.com/questions/24458645/label-encoding-across-multiple-columns-in-scikit-learn
+# https://stackoverflow.com/questions/24458645/label-encoding-across-multiple-columns-in-scikit-learn
 df_itemids = df_sales[['id','item_id','dept_id','cat_id','store_id','state_id']].copy()
 for col in df_itemids.columns:
     df_itemids[col+'_enc'] = LabelEncoder().fit_transform(df_itemids[col])
@@ -64,25 +62,10 @@ for col in df_itemids.columns:
 df_itemids = df_itemids[['id_enc', 'item_id_enc', 'dept_id_enc', 'cat_id_enc', 'store_id_enc', 'state_id_enc', 'id',
        'item_id', 'dept_id', 'cat_id', 'store_id', 'state_id']]
 #%% 2a) Add label encoded item_ids to prices
-df_prices = df_prices.merge(df_itemids[['store_id','item_id','item_id_enc','store_id_enc','dept_id_enc','cat_id_enc']], how='left', left_on=['store_id','item_id'], right_on=['store_id','item_id'])
+df_prices = df_prices.merge(df_itemids[['store_id','item_id','item_id_enc','store_id_enc']], how='left', left_on=['store_id','item_id'], right_on=['store_id','item_id'])
 # Assert that we don't create NaNs - in other words, every item in df_prices is represented in itemids
 assert df_prices.isnull().sum().sum() == 0
-df_prices = df_prices[['wm_yr_wk', 'sell_price', 'item_id_enc', 'store_id_enc', 'dept_id_enc']].copy()
-# Add price changes
-group = df_prices.groupby(['item_id_enc','store_id_enc'])['sell_price']
-df_prices['sell_price_change'] = group.shift(0) / group.shift(1) - 1
-df_prices['sell_price_change'] = df_prices['sell_price_change'].fillna(0)
-# Add normalized selling prices 
-def add_normprices(df, col, group):
-    df[col] = (group.shift(0) - group.transform(np.mean)) / group.transform(np.std)
-    df[col] = df[col].replace([np.inf, -np.inf], np.nan)
-    df[col] = df[col].fillna(0)
-    
-    return df
-
-df_prices = add_normprices(df_prices, 'sell_price_norm_item', df_prices.groupby(['item_id_enc'])['sell_price']) # Normalized price per item
-df_prices = add_normprices(df_prices, 'sell_price_norm_dept', df_prices.groupby(['dept_id_enc'])['sell_price']) # Normalized price per department
-df_prices = df_prices.drop(columns = ['dept_id_enc'])
+df_prices = df_prices[['wm_yr_wk', 'sell_price', 'item_id_enc', 'store_id_enc']]
 # Add weeks on sale
 df_prices['weeks_on_sale'] = df_prices.groupby(['item_id_enc','store_id_enc']).cumcount() + 1
 # Reduce mem
@@ -121,92 +104,14 @@ df = df.merge(df_itemids[['id','id_enc', 'item_id_enc', 'dept_id_enc', 'cat_id_e
 df = reduce_mem(df)
 #%% 5b) Add selling prices, fill nans.
 df = df.merge(df_prices, how='left', right_on=['item_id_enc','store_id_enc','wm_yr_wk'], left_on = ['item_id_enc','store_id_enc','wm_yr_wk'])
-df['sell_price'] = df['sell_price'].fillna(-10)
-df['sell_price_change'] = df['sell_price_change'].fillna(0)
-df['sell_price_norm_item'] = df['sell_price_norm_item'].fillna(0)
-df['sell_price_norm_dept'] = df['sell_price_norm_dept'].fillna(0)
+df['sell_price'] = df['sell_price'].fillna(method='bfill')
 df['weeks_on_sale'] = df['weeks_on_sale'].fillna(0)
-# Drop columns we no longer need
-df = df.drop(columns = ['d','wm_yr_wk'])
-df = df.sort_values(by=['item_id_enc','store_id_enc','date'])
-df = df.reset_index(drop=True)
-#%% 5c) Add time indicators
-dates = df['date'].dt
-df['dayofweek'] = dates.dayofweek
-df['dayofmonth'] = dates.day
-df['weekofyear'] = dates.isocalendar().week
-df['monthofyear'] = dates.month
-df = reduce_mem(df)
-#%% 5e) Add lagged target variables & trends
-def add_lags(df, lags):
-    group = df.groupby(['id_enc'])['sales']
-    for lag in lags:
-        df['sales_lag'+str(lag)] = group.shift(lag, fill_value=0).astype('int16')
-       
-    return df
-
-def add_ma(df, windows, lag):
-    group = df.groupby(['id_enc'])['sales_lag'+str(lag)]
-    for window in windows:
-        df['sales_lag'+str(lag)+'_mavg'+str(window)] = group.transform(lambda x: x.rolling(window, min_periods=1).mean()).fillna(0).astype('float32')
-
-    return df
-
-def add_item_trends(df):
-    # Add sales trend indicators
-    group = df.groupby(['id_enc'])
-    groupma7current = group['sales_lag1_mavg7'].shift(0)
-    df['sales_short_trend'] =  (1 + groupma7current) / (1 + group['sales_lag1_mavg28'].shift(0)) - 1
-    df['sales_long_trend'] = (1 + groupma7current) / (1 + group['sales_lag28_mavg56'].shift(0)) - 1
-    df['sales_year_trend'] = (1 + groupma7current) / (1 + group['sales_lag1_mavg7'].shift(364, fill_value=0)) - 1
-    df['sales_lywow_trend'] = (1 + group['sales_lag1_mavg7'].shift(357, fill_value=0)) / (1 + group['sales_lag1_mavg7'].shift(364, fill_value=0)) - 1
-    return df
-
-def add_product_trends(df, col, group):
-    group_ma7 = group.rolling(7, min_periods=1).mean()
-    group_ma90 = group.rolling(91, min_periods=1).mean()
-    first_index = group_ma7.index.names[0]
-    group_ly = group_ma7.groupby(first_index).shift(364, fill_value=0)
-    df_temp = pd.DataFrame(index = group_ma7.index)
-    df_temp[col+'_long_trend'] = (1 + group_ma7) / (1 + group_ma90) - 1
-    df_temp[col+'_year_trend'] = (1 + group_ma7) / (1 + group_ly) - 1
-    df = df.merge(df_temp, how='left', right_on=[first_index,'date'], left_on=[first_index,'date'])
-     
-    return df
-
-# Add lags and moving averages
-df = add_lags(df, np.concatenate((np.arange(1, 8), [28], [56], np.array([364])))) # last 7 days, 28 days, 56 days and last year
-df = add_ma(df, np.array([7, 28, 56]), 1) # moving averages
-df = add_ma(df, np.array([7, 28, 56]), 7) # moving averages
-df = add_ma(df, np.array([7, 28, 56]), 28) # moving averages
-df = add_item_trends(df)
-df = add_product_trends(df, 'sales_item', df.groupby(['item_id_enc','date'])['sales_lag1'].sum(min_count=1))
-# Reduce dataset
-df = reduce_mem(df)
 #%% Change order of features - this is convenient for later on
 # Everything up to 'date' is fixed for each day, thereafter is variable
 cols =['sales',
  'date',
  'id',
  'id_enc',
- 'sales_lag1',
- 'sales_lag2',
- 'sales_lag3',
- 'sales_lag4',
- 'sales_lag5',
- 'sales_lag6',
- 'sales_lag7',
- 'sales_lag1_mavg7',
- 'sales_lag1_mavg28',
- 'sales_lag1_mavg56',
- 'sales_lag7_mavg7',
- 'sales_lag7_mavg28',
- 'sales_lag7_mavg56',
- 'sales_short_trend',
- 'sales_long_trend',
- 'sales_year_trend',
- 'sales_item_long_trend',
- 'sales_item_year_trend',
  'item_id_enc',
  'dept_id_enc',
  'cat_id_enc',
@@ -218,26 +123,12 @@ cols =['sales',
  'event_type_1_enc',
  'event_type_2_enc',
  'sell_price',
- 'sell_price_change',
- 'sell_price_norm_item',
- 'sell_price_norm_dept',
- 'weeks_on_sale',
- 'dayofweek',
- 'dayofmonth',
- 'weekofyear',
- 'monthofyear',
- 'sales_lag364',
- 'sales_lag28_mavg7',
- 'sales_lag28_mavg28',
- 'sales_lag28_mavg56',
- 'sales_lywow_trend',
- 'sales_lag28',
- 'sales_lag56']
+ 'weeks_on_sale']
 
 df = df[cols]
 #%% 6) Create hdf with the stuff we need to keep
 df['id'] = df['id'].astype('O')
 df = df.sort_values(by=['store_id_enc','item_id_enc','date'])
 df = df.reset_index(drop=True)
-filename = f'{Path(__file__).parent.parent.absolute()}/datasets/m5/m5_dataset_products.parquet'
+filename = 'm5_dataset_products.parquet'
 df.to_parquet(filename)

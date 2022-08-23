@@ -26,8 +26,9 @@
 \usepackage{amsmath}
 \usepackage{nicefrac}       % compact symbols for 1/2, etc.
 \usepackage{microtype}      % microtypography
+\usepackage{graphicx}
 
-\title{Forecasting with Randomized Loss Backpropagation}
+\title{Hierarchical Forecasting at Scale}
 
 % The \author macro works with any number of authors. There are two commands
 % used to separate the names and addresses of multiple authors: \And and \AND.
@@ -82,56 +83,119 @@
 
 \section{Related work}
   \label{sec:relwork}
-  \paragraph{Hierarchical Forecasting} Aggregated forecasts are commonly considered in the context of hierarchical forecasting \cite{hyndman_optimal_2011}. In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure \cite{hyndman_optimal_2011,  hyndman_fast_2016, taieb_coherent_2017, ben_taieb_regularized_2019, wickramasuriya_optimal_2019}. Limitations of these approaches is that they require a post-processing step and they consider a fixed aggregation structure. In our work, we demonstrate how using dynamic aggregations during training can improve forecasts at various aggregation levels. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts. However, the hierarchical structure of the time series problem is considered fixed in SHARQ whereas we consider a structure that changes dynamically during training, and we will show that it is the dynamic changing of the structure that provides the additional benefits in terms of metrics improvement over other methods. 
+  \paragraph{Hierarchical Forecasting} Aggregated forecasts are commonly considered in the context of hierarchical forecasting \cite{hyndman_optimal_2011}. In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure \cite{hyndman_optimal_2011,  hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019, panagiotelis_forecast_2021}. Limitations of these approaches are (i) that they require a post-processing step, (ii) they consider a fixed aggregation structure and (iii) computing the reconciliation may be computationally expensive, as we show in Section~\ref{sec:ourwork}. In our work, we demonstrate how using dynamic aggregations during training can improve forecasts at various aggregation levels. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts. However, the hierarchical structure of the time series problem is considered fixed in SHARQ whereas we consider a structure that changes dynamically during training, and we will show that it is the dynamic changing of the structure that provides the additional benefits in terms of metrics improvement over other methods. 
 
   The benefit of forecasting with temporal hierarchies has been studied by \cite{athanasopoulos_forecasting_2017}. However, this work considers only fixed temporal hierarchies and aims to produce forecasts on multiple hierarchies to improve individual forecasts. In our work, we do not create forecasts at higher aggregations but only use higher aggregation gradient information during the training of our model.
 
-  \paragraph{Graph Neural Networks} Our work has connections to link-prediction in Graph Neural Networks (GNNs). 
+  \cite{rangapuram_endtoend_2021} DNN based end-to-end hierarchical probabilistic forecasting.
 
-  \paragraph{Vector Regression} 
+  \cite{bentaieb_regularized_2019} ERM approaches
 
+  \cite{taieb_sparse_2017}
+
+  \cite{zhang_optimal_2022} study the problem of reconciling hierarchical forecasts where some of the base forecasts are immutable, i.e. these are not allowed to be modified by the reconciliation method. 
+
+  \cite{}
 
 \section{Background}
   \label{sec:background}
-  We consider the problem of forecasting for a set of time series, which we can formalize as follows:
+  Suppose we have a time series \(\vec{y}_t\), where \(t\) denotes the time stamp. We are interested in estimating future values \(\hat{y}_{t}\) of the time series by employing a model \(f\) based on past values \(y_{t-1}, \dots, y_{t-T}\) of the time series and additional attributes \(X\):
+  \begin{equation}
+    \hat{y}_{t} = f(y_{t-1}, \dots, y_{t-T}, X_{t}, X_{t-1}, \dots, X_{t-T}).
+  \end{equation}
+  In hierarchical forecasting, we aim to create forecasts for many time series concurrently, whilst adherring to pre-specified hierarchical relationships that exist between the time series. This can be formalized as (\cite{hyndman_forecasting_2021}):
+  \begin{equation} \label{eq:hfp}
+    \tilde{\textbf{y}}_{t} = SP\hat{\textbf{y}}_{t} \;,
+  \end{equation}
+  where \(\hat{\textbf{y}}_{t} \in \mathbb{R}^{m} \) denotes the vector of forecasts for all \(m\) time series in the hierarchy, \(S \in \{0, 1\}^{m \times n}\) is a matrix that defines the hierarchical relationship between the \(n\) bottom-level time series and the \(m^* = m - n\) aggregations, and \(P \in \mathbb{R}^{n \times m}\) is a matrix that encapsulates the contribution of each forecast to the final estimate. For example, suppose we have five time series and three aggregations, with the hierarchical structure as depicted in Figure~
+  \ref{fig:hts}. Now,
+  \begin{equation}
+    \tilde{\textbf{y}}_{t} = 
+    \begin{bmatrix}
+      \tilde{y}_{t} \\
+      \tilde{y}_{A, t} \\
+      \tilde{y}_{B, t} \\
+      \tilde{y}_{AA, t} \\
+      \tilde{y}_{AB, t} \\
+      \tilde{y}_{AC, t} \\
+      \tilde{y}_{BA, t} \\
+      \tilde{y}_{BB, t} \\
+    \end{bmatrix}, \quad
+    S = 
+    \begin{bmatrix}
+      1 &1 &1 &1 &1 \\
+      1 &1 &1 &0 &0 \\
+      0 &0 &0 &1 &1 \\
+      1 &0 &0 &0 &0 \\
+      0 &1 &0 &0 &0 \\
+      0 &0 &1 &0 &0 \\
+      0 &0 &0 &1 &0 \\
+      0 &0 &0 &0 &1 \\
+    \end{bmatrix}, \quad
+    \hat{\textbf{y}}_{t} = 
+    \begin{bmatrix}
+      \hat{y}_{t} \\
+      \hat{y}_{A, t} \\
+      \hat{y}_{B, t} \\
+      \hat{y}_{AA, t} \\
+      \hat{y}_{AB, t} \\
+      \hat{y}_{AC, t} \\
+      \hat{y}_{BA, t} \\
+      \hat{y}_{BB, t} \\
+    \end{bmatrix}.  
+  \end{equation}
+  We can use the matrix \(P\) to define various forecast contribution scenarios. 
+  
+  \paragraph{MinTShrink and variants} \citet{wickramasuriya_optimal_2019} find the optimal \(P\) matrix by solving the following minimization problem for a particular choice of \(W\):
+  \begin{align}
+    \min_P &(\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t})^T W (\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t}) \nonumber \\
+    & \text{s.t.} \quad PS=I.
+  \end{align}
+  Assuming \(W\) is positive definite, this has the following solution (ref. Theorem 1 of \cite{wickramasuriya_optimal_2019}):
+  \begin{align} 
+    P &= (S^TW^{-1}S)^{-1}S^TW^{-1} \nonumber \\
+      &= (J - JWU(U^TWU)^{-1}U^T) \;, \label{eq:p1}
+  \end{align}
+  in which \(S\) is partitioned as \(S^T = [C^T \; I_n]\), \(J = [0_{n \times m^*} \; I_n]\), \(U^T = [I_{m^*} \; -C]\). In \textit{MinTShrink}, \(W\) is estimated using the shrunk empirical covariance estimate of \cite{schafer_shrinkage_2005}. Simpler choices for \(W\), such as the identity matrix, reduce the solution to the \textit{Ordinary Least Squares (OLS)} solution of \cite{hyndman_optimal_2011}.
 
-  Define aggregation
+  \paragraph{ERM} \citet{bentaieb_regularized_2019} 
 
-\section{Randomized Aggregated Loss}
-  \label{sec:ralf}
-  In this section, we first introduce the notion of aggregated loss functions in time series problems. Then, we derive our main theoretical result, which shows how randomized aggregated loss backpropagation can reduce bias and variance in our forecasting problem setting. Finally, we analyse the computational complexity of our proposed loss function.
+  \begin{figure}[t]
+    \centering
+    \includegraphics[height=5cm]{./assets/hts.png}
+    \caption{An hierarchical set of time series. Picture taken from \cite{hyndman_forecasting_2021}.}
+    \label{fig:hts}
+  \end{figure}
 
-  \subsection{Randomized Aggregated Loss}
-    \label{subsec:ral}
-    In forecasting problems, we typically aim to minimize a loss function \(f(\cdot)\) over a set of time series \(N\) where each time series may consist of \(T\) time steps: 
-    \begin{equation} \label{eq:scalarloss}
-      L = \sum^N_{i=1} \sum_{t=t_0}^{T} f(\cdot). 
-    \end{equation}
-    For example, for the \textit{squared error loss} this reads:
-    \begin{equation}
-      L = \sum^N_{i=1} \sum_{t=t_0}^{T} (y_{i,t} - \hat{y}_{i, t})^2,
-    \end{equation}
-    and we can obtain the often-used \textit{mean squared error loss} by dividing the loss by \(NT\). We now define a general \textit{aggregated loss} as:
-    \begin{equation} \label{eq:aggregatedloss}
-      L = \sum^{N + S}_{i=1} \sum_{t=t_0}^{T} w_{i, t} f(\cdot),
-    \end{equation}  
-    where \(S\) denotes the number of aggregations that we consider and \(w_i\) is a scalar weight associated with each individual time series or its aggregations. A loss function of the form \eqref{eq:aggregatedloss} was used to evaluate forecasts in the recent M5 hierarchical forecasting competition \cite{makridakis_m5_2020}. We define a \textit{randomized aggregated loss} as a loss of the form \eqref{eq:aggregatedloss} where the aggregations used to compute the loss are selected uniformly at random during training. In Figure~\ref{fig:aggexamples}, we provide a set of examples. In Figure The key insight of our paper is that we can obtain more accurate forecasts, with lower bias and variance, \textit{by considering random aggregations during the training of our forecasting model rather than no aggregations or fixed (hierarchical) aggregations}.
+\section{Hierarchical Forecast Reconciliation in Large-scale Settings}   \label{sec:ourwork}
+Our main motivations of this paper are the limitations of prior work for problem settings with many time series.
 
-  \subsection{Bias and Variance Reduction}
-    \label{subsec:biasandvariance}
+\paragraph{Scaling issues with reconciliation methods}
+In reconciliation methods, we see the following issues when scaling to many time series:
+\begin{itemize}
+  \item The reconciliation is performed as a \textit{post-processing} step, and thus has to be performed as an additional step after generating the base forecasts. Even though \(P\) in Eq.~\ref{eq:hfp} can be computed once using Eq.~\eqref{eq:p1}, the reconciliation still needs to be performed after each base forecast is produced. Also, \(P\) ideally is sparse \cite{bentaieb_regularized_2019}, but no reconciliation method guarantees this so computing Eq.~\ref{eq:hfp} will generally be a dense matrix-vector product that scales with the number of timeseries.
+  \item For \textit{MinTShrink} \cite{wickramasuriya_optimal_2019}, estimating \(W\) according to the method of \cite{schafer_shrinkage_2005} is computationally expensive, as computing this estimate has a computational complexity of \(O(Nn^2)\), with \(N\) denoting the number of training samples used to compute the shrunk covariance estimate. In addition, the shrunk covariance estimate of \cite{schafer_shrinkage_2005} is not guaranteed to give consistent results in high-dimensional settings \cite{touloumis_nonparametric_2015}, making it less applicable for problem settings with many time series. Finally, the estimate for \(W\) will generally be a dense matrix, so we cannot make use of efficient sparse algorithms to solve Eq.~\eqref{eq:p1}. However, even for simpler, sparse choices of \(W\) (such as the identity matrix of \textit{OLS} \cite{hyndman_optimal_2011}), we still need to invert a matrix of size \(m^* \times m^*\) in order to solve Eq.~\eqref{eq:p1}, which becomes computationally costly for problems with many aggregations, which naturally arise in retail forecasting scenarios. For example, for the M5 retail forecasting competition \cite{makridakis_m5_2020}, \(m^*=12350\), even though there are only 3049 unique products in the dataset.  
+  \item For \textit{ERM} and its regularized variants \cite{bentaieb_regularized_2019}, we need to either invert multiple dense matrices that scale quadratically with the number of time series, or we need to compute a Kronecker product that scales quadratically with the number of time series, followed by an expensive lasso search procedure. Improving the computational complexity of the \textit{ERM} methods is also mentioned in \cite{bentaieb_regularized_2019} as an avenue for future work.
+\end{itemize}
 
-  \subsection{Computational Complexity}
-    \label{subsec:complexity}
+\paragraph{Scaling issues with other methods}
+\begin{itemize}
+  \item SHARQ
+  \item DeepVAR
+\end{itemize}
+
+\section{Sparse Gradients}
+
 
 \section{Experiments}
   \label{sec:experiments}
   In this section we empirically verify our theoretical results.\footnote{The code to reproduce our experiments can be found at LINK} First, we demonstrate how using our randomized aggregated loss improves forecasting performance by up to [x\%]. Then, we show that using our aggregated loss results in a reduction of bias and variance, as suggested by our theoretical result.
 
-  \subsection{Datasets}
-    \label{subsec:datasets}
+  \subsection{Public datasets}
+    \label{subsec:publicdatasets}
 
-  \subsection{Results}
-    \label{subsec:results}
+  \subsection{Proprietary datasets}
+    \label{subsec:proprietarydatasets}
 
 \section{Discussion}
   \label{sec:discussion}
@@ -158,5 +222,8 @@
 
 \bibliographystyle{plainnat} 
 \bibliography{lib}
+
+\clearpage
+\appendix
 
 \end{document}

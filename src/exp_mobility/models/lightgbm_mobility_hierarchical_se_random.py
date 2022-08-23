@@ -7,47 +7,38 @@ Created on Wed Mar  9 15:01:40 2022
 #%% Import packages
 import numpy as np
 import pandas as pd
-import polars as pl
 import time
 import shutil
 from numba import njit, prange
 from numba.typed import List, Dict
 from numba.core import types
 import lightgbm as lgb
-#%% Read data
-data = pl.scan_parquet('datasets/m5/m5_dataset_products.parquet')
-subset = data.filter((pl.col('date') <=  pl.date(2016, 5, 22)) & 
-                     (pl.col('date') >=  pl.date(2014, 1, 1)) &
-                     (pl.col('weeks_on_sale') > 0) &
-                     (pl.col('store_id_enc') == 0))\
-             .sort(by=['store_id_enc','item_id_enc','date'])\
-             .collect()\
-             .to_pandas()
+import matplotlib.pyplot as plt
+from pathlib import Path
+from datetime import datetime
+from hts.utilities.load_data import load_mobility_data
+#%% Load data
+hd = load_mobility_data()
+data = hd.drop(columns = ['total', 'CH', 'SLU', 'BT', 'OTHER', 'temp', 'precipitation'])
+data = data.stack().reset_index()
+data.rename(columns = {'level_1':'item', 0:'target'}, inplace=True)
+data['group'] = data['item'].str.split('-', 1, expand=True)[0].astype("category")
+data['item'] = data['item'].astype("category")
+data = data[['starttime', 'group', 'item', 'target']]
+data = data.merge(hd.reset_index()[['starttime', 'temp', 'precipitation']], how='left', left_on=['starttime'], right_on=['starttime'])
+data.rename(columns = {'starttime':'date'}, inplace=True)
 #%% Preprocessing for forecast
-cols_unknown = ['sales_lag1', 'sales_lag2',
-   'sales_lag3', 'sales_lag4', 'sales_lag5', 'sales_lag6', 'sales_lag7',
-   'sales_lag1_mavg7', 'sales_lag1_mavg28', 'sales_lag1_mavg56',
-   'sales_lag7_mavg7', 'sales_lag7_mavg28', 'sales_lag7_mavg56',
-   'sales_short_trend', 'sales_long_trend', 'sales_year_trend',
-   'sales_item_long_trend', 'sales_item_year_trend']
-
-cols_known = ['date','item_id_enc', 'dept_id_enc', 'cat_id_enc',
-   'snap_CA', 'snap_TX', 'snap_WI', 'event_type_1_enc',
-   'event_type_2_enc', 'sell_price',
-   'sell_price_change', 'sell_price_norm_item', 'sell_price_norm_dept',
-   'weeks_on_sale', 'dayofweek', 'dayofmonth',
-   'weekofyear', 'monthofyear',
-   'sales_lag364', 'sales_lag28_mavg7',
-   'sales_lag28_mavg28', 'sales_lag28_mavg56', 'sales_lywow_trend',
-   'sales_lag28', 'sales_lag56']
-
-def create_forecastset(data, cols_unknown, cols_known, forecast_day):
-    X_unknown = data.groupby(['store_id_enc','item_id_enc'])[cols_unknown].shift(forecast_day)
-    X_known = data[cols_known]
-    X = pd.concat((X_known, X_unknown), axis=1)
-    y = data[['date','sales']]
+def create_forecast_set(data, forecast_day):
+    lags = np.arange(1, 8)
+    group = data.groupby(['item'])['target']
+    for lag in lags:
+        data['sales_lag'+str(lag)] = data.groupby(['item'])['target'].shift(lag + forecast_day)
     
-    return X, y
+    data['weekday'] = data['date'].dt.weekday
+    data = data.dropna()
+
+    return data
+
 #%% Create hierarchical squared error with daily aggregation
 @njit(fastmath = True, parallel=True)
 def hierarchical_loss(yhat, y, levels, level_weights, feval, params):
@@ -77,15 +68,15 @@ def hierarchical_loss(yhat, y, levels, level_weights, feval, params):
         
     return loss  
 
+# hierarchical gradient and hessian
 @njit(fastmath = True, parallel=True)
 def hierarchical_gradhess(yhat, y, levels, level_weights, fobj, params):
     dates = levels[0].T
-    n_levels = len(levels)
+    n_levels = len(levels) + 1
     n_dates = dates.shape[0]
     level_cnt = np.ones_like(y)
     gradient, hessian = fobj(yhat, y, params, level_cnt)
     gradient, hessian = (level_weights[-1] / n_levels) * gradient, (level_weights[-1] / n_levels) * hessian
-    # gradient, hessian = np.zeros_like(y), np.zeros_like(y)
     for i in prange(n_dates):
         date = dates[i]
         yhatd = yhat[date]
@@ -130,8 +121,9 @@ def hierarchical_obj_se(preds, train_data):
     params = Dict().empty(
                     key_type=types.unicode_type,
                     value_type=types.float64[:])
+    # levels = train_data.levels
     level_dates = train_data.levels[0]
-    levels, level_weights = create_random_levels(level_dates, seed = 0)
+    levels, level_weights = create_random_levels(level_dates, seed = train_data.params['seed'])
     y = train_data.get_label().astype(np.float64)
     gradient, hessian = hierarchical_gradhess(preds, y, levels, level_weights, fobj_se, params)
     
@@ -145,7 +137,6 @@ def hierarchical_eval_se(preds, eval_data):
                     key_type=types.unicode_type,
                     value_type=types.float64[:])
     # levels = eval_data.levels
-    # level_weights = eval_data.level_weights
     level_dates = eval_data.levels[0]
     levels, level_weights = create_random_levels(level_dates, seed = eval_data.params['seed'])
     y = eval_data.get_label().astype(np.float64)
@@ -215,7 +206,7 @@ params = {'min_split_gain':0,
           'max_depth':-1,
           'max_bin':255,
           'max_leaves':31,
-          'learning_rate':0.1,
+          'learning_rate':0.02,
           'n_estimators':1000,
           'verbose':1,
           'feature_fraction':1.0,
@@ -224,81 +215,115 @@ params = {'min_split_gain':0,
           'seed':0,
           'lambda':0,
           'objective': None,
+        #   'objective':'mse',
+        #   'metric':'mse',
           'metric': 'hierarchical_se',
           'device':'cpu'}
 
-path = 'src/exp1/'
-algorithm = 'lightgbm_randomlevels'
-dataset = 'm5'
-loss_function = params['metric']
-experiment_name = f'{algorithm}_{dataset}_{loss_function}'
-level_weights = List([1, 1])
-drop_cols = ['date']
-cat_cols = ['item_id_enc', 'dept_id_enc', 'cat_id_enc']
-level_cols = ['date']
+algorithm = 'lightgbm'
+dataset = 'mobility'
+experiment = 'hierarchical_se_random'
+experiment_name = f'{algorithm}_{dataset}_{experiment}'
+level_weights = List([1, 1, 1])
+drop_cols = ['date', 'target']
+cat_cols = ['group', 'item']
+level_cols = ['date', 'group']
 #%% Validation loop
 forecast_day = 0
 metrics = []
-X, y = create_forecastset(subset, cols_unknown, cols_known, forecast_day)
-train_last_date = '2016-03-27'
-val_first_date = '2016-03-28'
-val_last_date = '2016-04-24'
-# Create training and validation set
-X_train, y_train = X[X.date <= train_last_date], y[y.date <= train_last_date]
-X_val, y_val = X[(X.date >= val_first_date) & (X.date <= val_last_date)], y[(y.date >= val_first_date) & (y.date <= val_last_date)]
+df = create_forecast_set(data, 0)
+n_training_days = 3 * 366 
+n_validation_sets = 6
+n_days_per_validation_set = 31
+n_validation_days = n_validation_sets * n_days_per_validation_set 
+n_test_days = 90
+best_estimators = np.zeros(n_validation_sets)
+max_date = df['date'].max()
+test_date = max_date - pd.Timedelta(n_test_days - 1, 'd')
+for i, j in zip(range(n_validation_sets, 0, -1), range(n_validation_sets)):
+    train_date = max_date - pd.Timedelta(n_training_days + i * n_days_per_validation_set + n_test_days - 1, 'd')
+    validation_date = max_date - pd.Timedelta(i * n_days_per_validation_set + n_test_days - 1, 'd')
+    df_train = df[(df['date'] >= train_date) & (df['date'] < validation_date)]
+    df_validate = df[(df['date'] >= validation_date) & (df['date'] < (validation_date + pd.Timedelta(n_days_per_validation_set, 'd')))]
+    # Some assertions to check that we create correct non-overlapping sets
+    # assert df_train['date'].nunique() == n_training_days
+    assert df_validate['date'].nunique() == n_days_per_validation_set
+    assert df_validate['date'].min() > df_train['date'].max()
+    assert df_validate['date'].min() - df_train['date'].max() == pd.Timedelta(1, 'd')
+    assert df_validate['date'].max() + pd.Timedelta((i - 1) * n_days_per_validation_set + 1, 'd') == test_date
+    # Create levels for weighted squared error
+    levels_train = create_levels(df_train[level_cols])
+    levels_valid = create_levels(df_validate[level_cols])
+    # Create X, y
+    X_train, X_validate = df_train.drop(columns=drop_cols), df_validate.drop(columns=drop_cols)
+    y_train, y_validate = df_train['target'], df_validate['target']
+    # Construct LGB dataset
+    train_set = lgb.Dataset(X_train, y_train)
+    valid_set = lgb.Dataset(X_validate, y_validate)
+    train_set.levels = levels_train
+    train_set.level_weights = level_weights
+    valid_set.levels = levels_valid
+    valid_set.level_weights = level_weights    
+    # Train model
+    model = lgb.train(params,
+                        train_set = train_set,
+                        valid_sets = valid_set,
+                        early_stopping_rounds=20,
+                        fobj = hierarchical_obj_se,
+                        feval = hierarchical_eval_se)
+    # model = lgb.train(params,
+    #                     train_set = train_set,
+    #                     valid_sets = valid_set,
+    #                     early_stopping_rounds=20)                        
+    best_estimators[j] = model.best_iteration + 1
+
+#%% Test set
+params['n_estimators'] = int(np.mean(best_estimators))
+df_test = df[df['date'] >= test_date].copy()
+assert df_test['date'].nunique() == n_test_days
+train_date = max_date - pd.Timedelta(n_training_days + n_test_days - 1, 'd')
+df_train = df[(df['date'] >= train_date) & (df['date'] < test_date)]
+assert df_test['date'].min() > df_train['date'].max()
+assert df_test['date'].min() - df_train['date'].max() == pd.Timedelta(1, 'd')
 # Create levels for weighted squared error
-levels_train = create_levels(X_train[level_cols])
-levels_valid = create_levels(X_val[level_cols])
-# Create X, y tuples
-X_train, y_train = X_train.drop(columns=drop_cols), y_train.drop(columns=drop_cols)
-X_val, y_val = X_val.drop(columns=drop_cols), y_val.drop(columns=drop_cols)
+levels_train = create_levels(df_train[level_cols])
+levels_test = create_levels(df_test[level_cols])
+test_level_cols = ['date', 'group']
+levels_test = create_levels(df_test[test_level_cols])
+# Create X, y
+X_train, X_test = df_train.drop(columns=drop_cols), df_test.drop(columns=drop_cols)
+y_train, y_test = df_train['target'], df_test['target']
 # Construct LGB dataset
-params['bin_construct_sample_cnt'] = len(X_train)
-train_set = lgb.Dataset(X_train, y_train, categorical_feature=cat_cols)
-valid_set = lgb.Dataset(X_val, y_val, categorical_feature=cat_cols)
-train_set.levels = levels_train
-train_set.level_weights = level_weights
-valid_set.levels = levels_valid
-valid_set.level_weights = level_weights    
-# Train model
-model = lgb.train(params,
-                    train_set = train_set,
-                    valid_sets = valid_set,
-                    early_stopping_rounds=20,
-                    fobj = hierarchical_obj_se,
-                    feval = hierarchical_eval_se)
-params['n_estimators'] = model.best_iteration + 1
-#%% Test
-forecast_day = 0
-X, y = create_forecastset(subset, cols_unknown, cols_known, forecast_day)
-train_last_date = '2016-04-24'
-test_first_date = '2016-04-25'
-# Create training and validation set
-X_train, y_train = X[X.date <= train_last_date], y[y.date <= train_last_date]
-X_test, y_test = X[(X.date >= test_first_date)], y[(y.date >= test_first_date)]
-# Create levels for weighted squared error
-levels_train = create_levels(X_train[level_cols])
-test_level_cols = ['date', 'cat_id_enc', 'dept_id_enc']
-levels_test = create_levels(X_test[test_level_cols])
-# Create X, y tuples
-X_train, y_train = X_train.drop(columns=drop_cols), y_train.drop(columns=drop_cols)
-X_test, y_test = X_test.drop(columns=drop_cols), y_test.drop(columns=drop_cols)
-# Construct LGB dataset
-params['bin_construct_sample_cnt'] = len(X_train)
 train_set = lgb.Dataset(X_train, y_train, categorical_feature=cat_cols)
 train_set.levels = levels_train
 train_set.level_weights = level_weights
 # Train model
 model = lgb.train(params, train_set = train_set, fobj = hierarchical_obj_se)
-# Predict
-yhat = np.clip(model.predict(X_test), 0,  1e9)
-rmse_level = rmse_levels(yhat, y_test.values.astype(np.float64).squeeze(), levels_test)
+# model = lgb.train(params, train_set = train_set)
+yhat_test = model.predict(X_test)
+df_test['target_prediction'] = yhat_test
+rmse_level = rmse_levels(yhat_test, y_test.values.astype(np.float64).squeeze(), levels_test)
+#%% Plot predictions
+rng = np.random.default_rng()
+series = rng.choice(df_test['item'].unique())
+df_train_plot = df_train.set_index(['item', 'date'])
+df_test_plot = df_test.set_index(['item', 'date'])
+# plt.plot(df_train_plot.loc[series, 'sales'], label='Train set')
+plt.plot(df_test_plot.loc[series, 'target'], label='Test set')
+plt.plot(df_test_plot.loc[series, 'target_prediction'], label='Test predictions')
 #%% Logging
 metrics = []
-metrics.append((train_last_date, test_first_date, params['n_estimators']) + tuple(rmse_level))
+metrics.append((experiment_name, params['n_estimators']) + tuple(rmse_level))
+df_cmetrics = pd.DataFrame(metrics, columns=['experiment', 'n_estimators']\
+                                                + [f'rmse_{col}' for col in test_level_cols] + ['rmse_item'])
 # Create dataframe and save
-df_test_metrics = pd.DataFrame(metrics, columns=['train_last_date', 'test_first_date', 'best_estimators']\
-                                                  + [f'rmse_{col}' for col in test_level_cols] + ['rmse_product'])
-df_test_metrics.to_csv(path + experiment_name + '.csv')
-shutil.copy('src/model_lightgbm_random.py', path + experiment_name + '.py')
-model.save_model(path + experiment_name + '.model')
+metrics_path = 'experiment_results.csv'
+metrics = Path(metrics_path)
+if metrics.is_file():
+    df_metrics = pd.read_csv(metrics_path, index_col=0)
+    df_metrics = pd.concat((df_metrics, df_cmetrics), axis=0, ignore_index=True)
+else:
+    df_metrics = df_cmetrics
+df_metrics.to_csv(metrics_path)
+shutil.copy(Path(__file__).name, 'models/' + experiment_name + '.py')
+model.save_model('models/' + experiment_name + '.model')
