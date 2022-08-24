@@ -112,7 +112,7 @@ def exp_m5_globalall(X, Xind, targets, target, time_index, end_train,
     X_train = X.drop(columns=[target]).loc[:end_train]
     train_set = lgb.Dataset(X_train, y_train)
     # Tune if required
-    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.pkl'
+    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
     params = get_best_params(params, param_filename, train_set, fobj, feval)
     # Train & save model
     model = lgb.train(params, train_set)
@@ -148,7 +148,7 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S,
         X_train = Xl.drop(columns=[target]).loc[:end_train]
         train_set = lgb.Dataset(X_train, y_train)    
         # Tune if required
-        param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_best_params.pkl'
+        param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_best_params.params'
         params = get_best_params(params, param_filename, train_set, fobj, feval)
         # Train & save model
         model = lgb.train(params, train_set)
@@ -183,8 +183,10 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_
         params['objective'] = 'tweedie'
         fobj = None
     elif fobj == 'hierarchical_obj_se':
+        params['objective'] = None
         fobj = partial(hierarchical_obj_se, S=S)
     elif fobj == 'hierarchical_obj_se_random':
+        params['objective'] = None
         params['flag_params_random_hierarchical_loss'] = True
         fobj = partial(hierarchical_obj_se_random, S=S)
     # Set eval metric
@@ -202,7 +204,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_
     params['n_levels'] = Xind.get_level_values('Aggregation').nunique()
     params['n_bottom_timeseries'] = S.shape[1]
     # Tune if required
-    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.pkl'
+    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
     params = get_best_params(params, param_filename, train_set, fobj, feval)
     # Train & save model
     model = lgb.train(params, train_set, fobj=fobj)

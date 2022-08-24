@@ -14,7 +14,7 @@ end_train = '2016-04-24'
 start_test = '2016-04-25'
 # Other experiment settings
 folder = 'exp1_storeid=0'
-n_seeds = 2
+n_seeds = 1
 default_params = {'seed': 0,
                   'n_estimators': 2000,
                   'n_trials': 100,
@@ -62,7 +62,8 @@ for experiment in experiments_agg:
         # Store all forecasts
         experiment[f'forecast_seed_{seed}'] = forecasts_methods
 #%% Setting 3: global models for bottom-up series
-experiments_bu = [{'exp_name':'bu_objmse_evalmse',
+experiments_bu = [
+                    {'exp_name':'bu_objmse_evalmse',
                     'fobj':'l2',
                     'feval':'l2'},
                     {'exp_name':'bu_objmse_evalhmse',
@@ -100,11 +101,11 @@ for experiment in experiments_bu:
         forecasts_method = pd.concat({f"{experiment['exp_name']}" : forecasts_test}, names=['Method'])
         experiment[f'forecast_seed_{seed}'] = forecasts_method
 #%%
-forecasts_methods_total = pd.concat((df_forecasts_bu_objmse_evalmse, df_forecasts_bu_objmse_evalhse,
-                                      df_forecasts_bu_objhse_evalhse, df_forecasts_bu_objhse_evalmse, 
-                                      df_forecasts_bu_objrhse_evalhse, df_forecasts_bu_objrhse_evalmse, forecasts_methods), axis=0)
+# forecasts_methods_total = pd.concat((df_forecasts_bu_objmse_evalmse, df_forecasts_bu_objmse_evalhse,
+#                                       df_forecasts_bu_objhse_evalhse, df_forecasts_bu_objhse_evalmse, 
+#                                       df_forecasts_bu_objrhse_evalhse, df_forecasts_bu_objrhse_evalmse, forecasts_methods), axis=0)
 
-rmse, rel_rmse = calc_level_method_rmse(forecasts_methods_total, targets, base='bu_objmse_evalmse')
-#%% Save
-rmse.to_csv('src/exp_m5/rmse_lgbm_hier.csv')
-rmse.to_csv('src/exp_m5/rel_rmse_lgbm_hier.csv')
+# rmse, rel_rmse = calc_level_method_rmse(forecasts_methods_total, targets, base='bu_objmse_evalmse')
+# #%% Save
+# rmse.to_csv('src/exp_m5/rmse_lgbm_hier.csv')
+# rmse.to_csv('src/exp_m5/rel_rmse_lgbm_hier.csv')
