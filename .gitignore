@@ -131,6 +131,7 @@ dmypy.json
 datasets/
 .vscode/
 **/_old
+temp/
 
 # Files
 *.csv

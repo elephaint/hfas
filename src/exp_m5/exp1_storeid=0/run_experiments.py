@@ -1,8 +1,7 @@
 #%% Read packages
 import pandas as pd
-import numpy as np
 from hierts.reconciliation import calc_summing_matrix, apply_reconciliation_methods, calc_level_method_rmse
-from experiments import read_m5, create_forecast_set, exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
+from src.exp_m5 import read_m5, create_forecast_set, exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
 #%% Set aggregations and target
 aggregation_cols = ['cat_id_enc', 'dept_id_enc', 'item_id_enc']
 aggregations = [['cat_id_enc'],
@@ -14,14 +13,14 @@ end_train = '2016-04-24'
 start_test = '2016-04-25'
 # Other experiment settings
 folder = 'exp1_storeid=0'
-n_seeds = 1
+n_seeds = 10
 default_params = {'seed': 0,
                   'n_estimators': 2000,
                   'n_trials': 100,
                   'learning_rate': 0.1,
                   'verbosity': -1,
                   'tuning': True,
-                  'n_validation_sets': 6,
+                  'n_validation_sets': 3,
                   'max_levels_random': 2,
                   'max_categories_per_random_level': 1000,
                   'n_days_test': 28}
@@ -35,24 +34,29 @@ X, Xind, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, t
 #%% Setting 1: global models for all time series
 experiments_global = [{'exp_name':'globalall_objse_evalmse'}]
 for experiment in experiments_global:
+    df_result = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
+        params = default_params.copy()
         forecast_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
-                                         exp_name=exp_name, params=default_params, exp_folder=folder,
+                                         exp_name=exp_name, params=params, exp_folder=folder,
                                          seed=seed)
         # Apply reconciliation methods
         forecasts_test = forecast_seed.loc[:, start_test:]
         forecasts_methods = apply_reconciliation_methods(forecasts_test, df_S, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
                         methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True)
-        # Store all forecasts
-        experiment[f'forecast_seed_{seed}'] = forecasts_methods
+        # Add result to result df
+        dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
+        df_result = pd.concat((df_result, dfc))
+    df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')
 #%% Setting 2: separate model for each aggregation in the hierarchy
 experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
 for experiment in experiments_agg:
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
+        params = default_params.copy()
         forecast_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
-                                         df_S, exp_name=exp_name, params=default_params,
+                                         df_S, exp_name=exp_name, params=params,
                                          exp_folder=folder, seed=seed)
         experiment[f'forecast_seed_{seed}'] = forecast_seed
         # Apply reconciliation methods
@@ -75,6 +79,9 @@ experiments_bu = [
                     {'exp_name':'bu_objtweedie_evalhmse',
                     'fobj':'tweedie',
                     'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objtweedie_evaltweedie',
+                    'fobj':'tweedie',
+                    'feval': 'tweedie'},
                     {'exp_name':'bu_objhse_evalhmse',
                     'fobj': 'hierarchical_obj_se',
                     'feval': 'hierarchical_eval_hmse'},
@@ -86,26 +93,23 @@ experiments_bu = [
                     'feval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objrhse_evalmse',
                     'fobj': 'hierarchical_obj_se_random',
-                    'feval': 'l2'}]
+                    'feval': 'l2'},
+                    ]
 # We loop over all the experiments and create forecasts for n_seeds
 for experiment in experiments_bu:
+    df_result = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
         fobj = experiment['fobj']
         feval = experiment['feval']
+        params = default_params.copy()
         forecast_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, 
                                                 name_bottom_timeseries, df_S, exp_folder=folder,
-                                                params=default_params, exp_name=exp_name,
-                                                fobj=fobj, feval=feval)
+                                                params=params, exp_name=exp_name,
+                                                fobj=fobj, feval=feval, seed=seed)
         forecasts_test = forecast_seed.loc[:, start_test:]
         forecasts_method = pd.concat({f"{experiment['exp_name']}" : forecasts_test}, names=['Method'])
-        experiment[f'forecast_seed_{seed}'] = forecasts_method
-#%%
-# forecasts_methods_total = pd.concat((df_forecasts_bu_objmse_evalmse, df_forecasts_bu_objmse_evalhse,
-#                                       df_forecasts_bu_objhse_evalhse, df_forecasts_bu_objhse_evalmse, 
-#                                       df_forecasts_bu_objrhse_evalhse, df_forecasts_bu_objrhse_evalmse, forecasts_methods), axis=0)
-
-# rmse, rel_rmse = calc_level_method_rmse(forecasts_methods_total, targets, base='bu_objmse_evalmse')
-# #%% Save
-# rmse.to_csv('src/exp_m5/rmse_lgbm_hier.csv')
-# rmse.to_csv('src/exp_m5/rel_rmse_lgbm_hier.csv')
+        # Add result to result df
+        dfc = pd.concat({f'{seed}': forecasts_method}, names=['Seed'])
+        df_result = pd.concat((df_result, dfc))
+    df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')

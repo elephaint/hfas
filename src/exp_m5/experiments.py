@@ -52,7 +52,7 @@ def opt_objective(trial, train_set, cv_iter, params, fobj, feval):
         }
         trial_params.update(trial_params_random_loss)
     if params['objective'] == 'tweedie':
-        trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.0, 1.99)}
+        trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
         trial_params.update(trial_params_tweedie)
     # Perform cross-validation using walk-forward validation
     cv_results = lgb.cv(trial_params,
@@ -196,6 +196,9 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_
     elif feval == 'hierarchical_eval_hmse':
         params['metric'] = feval
         feval = partial(hierarchical_eval_mse, S=S)
+    elif feval == 'tweedie':
+        params['metric'] = 'tweedie'
+        feval = None
     # Create train set
     y_train = Xb[target].loc[:end_train]
     X_train = Xb.drop(columns=[target]).loc[:end_train]

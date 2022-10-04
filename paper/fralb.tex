@@ -159,6 +159,10 @@
   in which \(S\) is partitioned as \(S^T = [C^T \; I_n]\), \(J = [0_{n \times m^*} \; I_n]\), \(U^T = [I_{m^*} \; -C]\). In \textit{MinTShrink}, \(W\) is estimated using the shrunk empirical covariance estimate of \cite{schafer_shrinkage_2005}. Simpler choices for \(W\), such as the identity matrix, reduce the solution to the \textit{Ordinary Least Squares (OLS)} solution of \cite{hyndman_optimal_2011}.
 
   \paragraph{ERM} \citet{bentaieb_regularized_2019} 
+  \begin{align} 
+    B^T &= (S^TS)^{-1}S^T\textbf{y}_{t} \\
+    P   &= ((\hat{\textbf{y}}_{t}^T)^{-1} B)^T
+  \end{align}
 
   \begin{figure}[t]
     \centering
@@ -185,7 +189,17 @@ In reconciliation methods, we see the following issues when scaling to many time
 \end{itemize}
 
 \section{Sparse Gradients}
+\begin{align}
+  \textbf{y}_{t} &= S  \textbf{y}^n_{t} \nonumber \\
+  \hat{\textbf{y}}_{t} &= S \hat{\textbf{y}}^n_{t} \nonumber \\
+  L &= \frac{1}{m} \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right]
+\end{align}
 
+\begin{align}
+  \frac{\partial L}{\partial \hat{\textbf{y}}_{t}} &=  \left[ \frac{(\hat{\textbf{y}}_{t} - \textbf{y}_{t})}{l \sum_{j=1}^n S_{ij}} \right] \\
+  \frac{\partial L}{\partial \hat{\textbf{y}}^n_{t}} &= \frac{\partial L}{d \hat{\textbf{y}}_{t}} S \\
+  \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n
+\end{align}
 
 \section{Experiments}
   \label{sec:experiments}
