@@ -1,9 +1,12 @@
 import pandas as pd
 import numpy as np
 from scipy.sparse import csc_matrix
+from pathlib import Path
 #%% Read data
 def read_m5(first_date='01-01-2012', last_date='22-05-2016', store_level=True, store_id=0):
-    df = pd.read_parquet('src/exp_m5/data/m5_dataset_products.parquet', 
+    directory = Path(__file__).parent
+    filename = directory.joinpath('data/m5_dataset_products.parquet')
+    df = pd.read_parquet(filename, 
                         columns = ['sales', 'date', 'state_id_enc', 'store_id_enc', 'cat_id_enc', 
                                     'dept_id_enc', 'item_id_enc', 'snap_CA', 'snap_TX', 'snap_WI',
                                     'event_type_1_enc', 'event_type_2_enc', 'weeks_on_sale', 'sell_price'])
