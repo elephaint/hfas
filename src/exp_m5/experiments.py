@@ -138,8 +138,10 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S,
     params['metric'] = 'l2'
     # Loop over aggregations
     forecasts_levels = []
+    default_params = params.copy()
     for level in df_S.index.get_level_values('Aggregation').unique():
         print(f'Training level: {level}')
+        params_level = default_params.copy()
         # Only keep bottom-level timeseries
         Xl_ind = pd.DataFrame(index=Xind).loc[level].index
         Xl = X[X['Aggregation'] == level]
@@ -149,9 +151,9 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S,
         train_set = lgb.Dataset(X_train, y_train)    
         # Tune if required
         param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_best_params.params'
-        params = get_best_params(params, param_filename, train_set, fobj, feval)
+        params_level = get_best_params(params_level, param_filename, train_set, fobj, feval)
         # Train & save model
-        model = lgb.train(params, train_set)
+        model = lgb.train(params_level, train_set)
         joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_model.pkl')
         # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
         yhat = model.predict(Xl.drop(columns=[target]))
