@@ -89,7 +89,7 @@
 
   \cite{rangapuram_endtoend_2021} DNN based end-to-end hierarchical probabilistic forecasting.
 
-  \cite{bentaieb_regularized_2019} ERM approaches
+  \cite{bentaieb_regularized_2019} ERM approaches are mainly slow and do not work as well.
 
   \cite{taieb_sparse_2017}
 
@@ -103,7 +103,7 @@
   \begin{equation}
     \hat{y}_{t} = f(y_{t-1}, \dots, y_{t-T}, X_{t}, X_{t-1}, \dots, X_{t-T}).
   \end{equation}
-  In hierarchical forecasting, we aim to create forecasts for many time series concurrently, whilst adherring to pre-specified hierarchical relationships that exist between the time series. This can be formalized as (\cite{hyndman_forecasting_2021}):
+  In our hierarchical forecasting setting, we aim to create forecasts for many time series concurrently, whilst adherring to pre-specified hierarchical relationships that exist between the time series. This can be formalized as (\cite{hyndman_forecasting_2021}):
   \begin{equation} \label{eq:hfp}
     \tilde{\textbf{y}}_{t} = SP\hat{\textbf{y}}_{t} \;,
   \end{equation}

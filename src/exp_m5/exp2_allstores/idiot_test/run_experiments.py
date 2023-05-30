@@ -61,73 +61,68 @@ X, Xind, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, t
 #     df_result.to_parquet(f'./src/exp_m5/{folder}/{exp_name}.parquet')
 
 #%% Setting 2: separate model for each aggregation in the hierarchy
-experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
-for experiment in experiments_agg:
+# experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
+# for experiment in experiments_agg:
+#     for seed in range(n_seeds):
+#         exp_name = experiment['exp_name']
+#         params = default_params.copy()
+#         forecast_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
+#                                          df_S, exp_name=exp_name, params=params,
+#                                          exp_folder=folder, seed=seed)
+#         experiment[f'forecast_seed_{seed}'] = forecast_seed
+#         # Apply reconciliation methods
+#         forecasts_test = forecast_seed.loc[:, start_test:]
+#         forecasts_methods = apply_reconciliation_methods(forecasts_test, df_S, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
+#                         methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True)
+#         # Store all forecasts
+#         experiment[f'forecast_seed_{seed}'] = forecasts_methods
+#%% Setting 3: global models for bottom-up series
+experiments_bu = [
+                    # {'exp_name':'bu_objmse_evalmse',
+                    # 'fobj':'l2',
+                    # 'feval':'l2'},
+                    # {'exp_name':'bu_objmse_evalhmse',
+                    # 'fobj':'l2',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objtweedie_evalmse',
+                    # 'fobj':'tweedie',
+                    # 'feval':'l2'},
+                    # {'exp_name':'bu_objtweedie_evalhmse',
+                    # 'fobj':'tweedie',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objtweedie_evaltweedie',
+                    # 'fobj':'tweedie',
+                    # 'feval': 'tweedie'},
+                    # {'exp_name':'bu_objhse_evalhmse',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalmse',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'l2'},
+                    {'exp_name':'bu_objrhse_evalhmse',
+                    'fobj': 'hierarchical_obj_se_random',
+                    'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objrhse_evalmse',
+                    'fobj': 'hierarchical_obj_se_random',
+                    'feval': 'l2'},
+                    ]
+# We loop over all the experiments and create forecasts for n_seeds
+for experiment in experiments_bu:
     df_result = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
+        fobj = experiment['fobj']
+        feval = experiment['feval']
         params = default_params.copy()
-        forecast_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
-                                         df_S, exp_name=exp_name, params=params,
-                                         exp_folder=folder, seed=seed)
-        experiment[f'forecast_seed_{seed}'] = forecast_seed
-        # Apply reconciliation methods
+        forecast_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, 
+                                                name_bottom_timeseries, df_S, exp_folder=folder,
+                                                params=params, exp_name=exp_name,
+                                                fobj=fobj, feval=feval, seed=seed)
         forecasts_test = forecast_seed.loc[:, start_test:]
-        forecasts_methods = apply_reconciliation_methods(forecasts_test, df_S, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
-                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True)
+        forecasts_method = pd.concat({f"{experiment['exp_name']}" : forecasts_test}, names=['Method'])
         # Add result to result df
-        dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
+        dfc = pd.concat({f'{seed}': forecasts_method}, names=['Seed'])
         df_result = pd.concat((df_result, dfc))
+    # df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')
     df_result.columns = df_result.columns.astype(str)
     df_result.to_parquet(f'./src/exp_m5/{folder}/{exp_name}.parquet')
-
-#%% Setting 3: global models for bottom-up series
-# experiments_bu = [
-#                     {'exp_name':'bu_objmse_evalmse',
-#                     'fobj':'l2',
-#                     'feval':'l2'},
-#                     {'exp_name':'bu_objmse_evalhmse',
-#                     'fobj':'l2',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objtweedie_evalmse',
-#                     'fobj':'tweedie',
-#                     'feval':'l2'},
-#                     {'exp_name':'bu_objtweedie_evalhmse',
-#                     'fobj':'tweedie',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objtweedie_evaltweedie',
-#                     'fobj':'tweedie',
-#                     'feval': 'tweedie'},
-#                     {'exp_name':'bu_objhse_evalhmse',
-#                     'fobj': 'hierarchical_obj_se',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objhse_evalmse',
-#                     'fobj': 'hierarchical_obj_se',
-#                     'feval': 'l2'},
-#                     {'exp_name':'bu_objrhse_evalhmse',
-#                     'fobj': 'hierarchical_obj_se_random',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objrhse_evalmse',
-#                     'fobj': 'hierarchical_obj_se_random',
-#                     'feval': 'l2'},
-#                     ]
-# # We loop over all the experiments and create forecasts for n_seeds
-# for experiment in experiments_bu:
-#     df_result = pd.DataFrame()
-#     for seed in range(n_seeds):
-#         exp_name = experiment['exp_name']
-#         fobj = experiment['fobj']
-#         feval = experiment['feval']
-#         params = default_params.copy()
-#         forecast_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, 
-#                                                 name_bottom_timeseries, df_S, exp_folder=folder,
-#                                                 params=params, exp_name=exp_name,
-#                                                 fobj=fobj, feval=feval, seed=seed)
-#         forecasts_test = forecast_seed.loc[:, start_test:]
-#         forecasts_method = pd.concat({f"{experiment['exp_name']}" : forecasts_test}, names=['Method'])
-#         # Add result to result df
-#         dfc = pd.concat({f'{seed}': forecasts_method}, names=['Seed'])
-#         df_result = pd.concat((df_result, dfc))
-#     # df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')
-#     df_result.columns = df_result.columns.astype(str)
-#     df_result.to_parquet(f'./src/exp_m5/{folder}/{exp_name}.parquet')
