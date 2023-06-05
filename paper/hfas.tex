@@ -96,7 +96,7 @@
 \begin{abstract}
   Hierarchical forecasting techniques allow creation of forecasts that are coherent with respect to a pre-specified hierarchy of the underlying time series. This targets a key problem in e-commerce, where we often find millions of products across many product hierarchies, and forecasts need to be made for both individual products and product aggregations. However, existing hierarchical forecasting techniques scale poorly when the number of time series increases, which limits their potential for application at a scale of millions of products. 
   
-  In this paper, we investigate the use of learning a coherent forecast for millions of products with a single bottom-level forecast model by using a loss function that directly optimizes the hierarchical product structure. We implement our loss function using sparse linear algebra, such that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierachical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline. 
+  In this paper, we investigate the use of learning a coherent forecast for millions of products with a single bottom-level forecast model by using a loss function that directly optimizes the hierarchical product structure. We implement our loss function using sparse linear algebra, such that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted, temporal) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline. 
   
   In our tests on the public M5 dataset, our sparse hierarchical loss function performs on par with the baseline loss function. Next, we implemented our sparse hierarchical loss function within an existing gradient boosting-based forecasting model at bol.com, a large European e-commerce platform. Unfortunately, in this setting our sparse hierarchical loss resulted in a slightly worse forecasting performance as measured by RMSE of about 1\% at the product level, as compared to the the baseline model. 
   
@@ -124,140 +124,242 @@
 % time series, where individual time series may be aggregated into increasingly larger aggregations that are meaningful from the perspective of the forecasting application, such as individual product demand that may be aggregated into department demand, to store demand, to regional demand. 
 
 \section{Introduction}
-Contemporary large-scale forecasting applications require forecasting many time series concurrently \cite{bose_probabilistic_2017}. In e-commerce, there is often a hierarchical relationship between individual products. For example, individual daily product demand can be aggregated into category demand, into department demand, into region demand, and up until the overall aggregated daily demand within the company. Hierarchical forecasting techniques \cite{hyndman_optimal_2011} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified hierarchy of the underlying time series.  
+In e-commerce, we may need forecasts for millions of products concurrently \cite{bose_probabilistic_2017}, and we are often faced with two forecasting challenges. First, forecasts at the lowest granularity - often the individual product level - are required but we also need forecasts for higher granularities, for example at the category, department or regional level. Second, forecasts at different time granularities are required, for example daily or weekly forecasts. It is common that separate forecast models are made for each separate (temporal) granularity, and as such these forecasts may not be coherent with each other. Hierarchical forecasting \cite{hyndman_optimal_2011} and temporal hierarchical forecasting techniques \cite{athanasopoulos_forecasting_2017,rangapuram_coherent_2023,theodosiou_forecasting_2021} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified (temporal) hierarchy of the underlying time series. 
 
-\paragraph{Challenges with existing hierarchical forecasting techniques} Exisstinadding an explicit forecast reconciliation step when creating hierarchical forecasts. In this work, we show that we can solve both issues using randomized aggregated loss backpropagation. First, we formalize the notion of a randomized aggregated loss in time series problems. Then, we theoretically show that using randomized aggregated loss reduces bias and variance in the recursive forecasting setting. We empirically verify our theoretical result on a set of common hierarchical forecasting benchmarks and show that our solution improves forecasting performance up to [x\%]. Finally, we show that randomized aggregated losses can yield forecasts that are better coherent across arbitrary aggregations, even when comparing against methods that specifically aim to optimize for specific aggregations, such as in hierarchical forecasting. 
+\paragraph{Challenges with existing (temporal) hierarchical forecasting techniques} Reconciliation methods \cite{hyndman_optimal_2011,athanasopoulos_forecasting_2017,wickramasuriya_optimal_2019} apply a post-processing step that requires a matrix inversion that scales quadratically with the number of products or product hierarchies. In settings with millions of products such as in e-commerce, this becomes computationally very expensive at prediction time. Neural network methods \cite{rangapuram_endtoend_2021,rangapuram_coherent_2023} directly optimize for the (temporal) hierarchy in an end-to-end manner. However, these multivariate methods require a forward pass over all training samples at every training epoch, which becomes computionally very expensive at training time in settings with millions of products. 
   
-\paragraph{Sparse loss function}
+\paragraph{Sparse loss function} In order to overcome these scaling issues, we implement a sparse hierarchical loss function that directly optimizes the (temporal) hierarchical structure. Our sparse implementation ensures that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure, enabling computationally efficient training. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted, temporal) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline.
 
+\paragraph{Evaluation} We evaluate our sparse hierarchical loss function on a gradient-boosted forecasting system on public (M5) and private (bol.com) datasets. For the M5 dataset, we demonstrate that our implementation provides similar or better forecasting performance compared with reconciliation methods and neural network methods. For the private dataset, we present the results of an offline test on the product-level forecast system of bol.com, a European e-commerce company selling millions of products. Unfortunately, results from our offline test showed slightly worse performance as compared to the existing forecasting system at bol.com. 
 
-\paragraph{Evaluation}
-   
-  The main contributions of this paper are:
+\paragraph{Contributions} In summary, the main contributions of this paper are:
 \begin{enumerate}
-  \item We empirically demonstrate that a randomized aggregated loss improves hierarchical forecasting performance up to [x\%] compared to using a scalar loss function
-  \item We provide a pip-installable Python package that allows practitioners to easily use our aggregated loss framework.
+  \item We present a sparse hierarchical loss function that enables direct end-to-end training of (temporal) hierarchical forecasts in large-scale settings.
+  \item We empirically demonstrate that a sparse hierarchical loss function outperforms existing (temporal) hierarchical forecasting methods by up to [x\%].
+  \item We provide a pip-installable Python package that allows practitioners to easily use our sparse hierarchical aggregated loss framework in large-scale settings.
 \end{enumerate}
 
 \section{Related work} \label{sec:relwork}
-\paragraph{Hierarchical Forecasting} Aggregated forecasts are commonly considered in the context of hierarchical forecasting \cite{hyndman_optimal_2011}. In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure \cite{hyndman_optimal_2011,  hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019, panagiotelis_forecast_2021}. Limitations of these approaches are (i) that they require a post-processing step, (ii) they consider a fixed aggregation structure and (iii) computing the reconciliation may be computationally expensive, as we show in Section~\ref{sec:ourwork}. In our work, we demonstrate how using dynamic aggregations during training can improve forecasts at various aggregation levels. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts. However, the hierarchical structure of the time series problem is considered fixed in SHARQ whereas we consider a structure that changes dynamically during training, and we will show that it is the dynamic changing of the structure that provides the additional benefits in terms of metrics improvement over other methods. 
+% In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure
 
-The benefit of forecasting with temporal hierarchies has been studied by \cite{athanasopoulos_forecasting_2017}. However, this work considers only fixed temporal hierarchies and aims to produce forecasts on multiple hierarchies to improve individual forecasts. In our work, we do not create forecasts at higher aggregations but only use higher aggregation gradient information during the training of our model.
+\paragraph{Forecasting for large-scale settings} Contemporary large-scale forecasting applications require forecasting many time series concurrently \cite{bose_probabilistic_2017}. In academia, there has been a surge in the use of neural network-based forecasting methods, which are methods that commonly learn a single forecast model that can produce forecasts for many time series. We refer the interested reader to the recent survey of \citet{benidis_deep_2023} for an overview of these methods. However, tree-based methods topped the M5 forecasting competition \cite{makridakis_m5_2022}, which is believed to be due to the strong implementations available of these algorithms \cite{januschowski_forecasting_2022}, such as the packages LightGBM \cite{ke_lightgbm_2017} or XGBoost \cite{chen_xgboost_2016}. Our own experience within bol.com confirms this view: the ease of use, execution speed and strong default performance are key reasons a tree-based method is often the default choice when creating a new forecast model.
 
-\cite{rangapuram_endtoend_2021} DNN based end-to-end hierarchical probabilistic forecasting.
+\paragraph{Hierarchical forecasting} Hierarchical forecasting \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019} and temporal hierarchical forecasting techniques \cite{taieb_sparse_2017,athanasopoulos_forecasting_2017,rangapuram_coherent_2023,theodosiou_forecasting_2021} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified (temporal) hierarchy of the underlying time series. We divide hierarchical forecasting methods into reconciliation methods and other methods.
 
-\cite{bentaieb_regularized_2019} ERM approaches are mainly slow and do not work as well.
+\subparagraph{Reconciliation methods} These methods solve the hierarchical forecasting problem as a post-processing step by reconciling the forecasts to a pre-specified (temporal) hierarchy \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019, panagiotelis_forecast_2021}. Limitations of these approaches are (i) that they require a post-processing step, (ii) computing the reconciliation may be computationally expensive, as we show in Section~\ref{sec:ourwork}, and (iii) approaches that are computationally less expensive tend to perform worse, as we show in Section~\ref{sec:experiments}. Recent work by \citet{taieb_sparse_2017, bentaieb_regularized_2019} has improved forecasting performance of previous reconciliation approaches but at the expense of even higher computational cost, as we explain in Section~\ref{sec:background}. \citet{zhang_optimal_2023} study the problem of reconciling hierarchical forecasts where some of the base forecasts are immutable, i.e. these are not allowed to be modified by the reconciliation method. However, this work also does not address the scalability issues we identify in Section~\ref{sec:ourwork}.
 
-\cite{taieb_sparse_2017}
-
-\cite{zhang_optimal_2022} study the problem of reconciling hierarchical forecasts where some of the base forecasts are immutable, i.e. these are not allowed to be modified by the reconciliation method. 
-
-Testing
+\subparagraph{Other methods} In \cite{rangapuram_endtoend_2021,rangapuram_coherent_2023} neural network-based end-to-end hierarchical probabilistic forecasting method are proposed to solve the hierarchical forecasting problem. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts through regularization.
 
 
-\section{Background}
-  \label{sec:background}
-  Suppose we have a time series \(\vec{y}_t\), where \(t\) denotes the time stamp. We are interested in estimating future values \(\hat{y}_{t}\) of the time series by employing a model \(f\) based on past values \(y_{t-1}, \dots, y_{t-T}\) of the time series and additional attributes \(X\):
-  \begin{equation}
-    \hat{y}_{t} = f(y_{t-1}, \dots, y_{t-T}, X_{t}, X_{t-1}, \dots, X_{t-T}).
-  \end{equation}
-  In our hierarchical forecasting setting, we aim to create forecasts for many time series concurrently, whilst adherring to pre-specified hierarchical relationships that exist between the time series. This can be formalized as (\cite{hyndman_forecasting_2021}):
-  \begin{equation} \label{eq:hfp}
-    \tilde{\textbf{y}}_{t} = SP\hat{\textbf{y}}_{t} \;,
-  \end{equation}
-  where \(\hat{\textbf{y}}_{t} \in \mathbb{R}^{m} \) denotes the vector of forecasts for all \(m\) time series in the hierarchy, \(S \in \{0, 1\}^{m \times n}\) is a matrix that defines the hierarchical relationship between the \(n\) bottom-level time series and the \(m^* = m - n\) aggregations, and \(P \in \mathbb{R}^{n \times m}\) is a matrix that encapsulates the contribution of each forecast to the final estimate. For example, suppose we have five time series and three aggregations, with the hierarchical structure as depicted in Figure~
-  \ref{fig:hts}. Now,
-  \begin{equation}
-    \tilde{\textbf{y}}_{t} = 
-    \begin{bmatrix}
-      \tilde{y}_{t} \\
-      \tilde{y}_{A, t} \\
-      \tilde{y}_{B, t} \\
-      \tilde{y}_{AA, t} \\
-      \tilde{y}_{AB, t} \\
-      \tilde{y}_{AC, t} \\
-      \tilde{y}_{BA, t} \\
-      \tilde{y}_{BB, t} \\
-    \end{bmatrix}, \quad
-    S = 
-    \begin{bmatrix}
-      1 &1 &1 &1 &1 \\
-      1 &1 &1 &0 &0 \\
-      0 &0 &0 &1 &1 \\
-      1 &0 &0 &0 &0 \\
-      0 &1 &0 &0 &0 \\
-      0 &0 &1 &0 &0 \\
-      0 &0 &0 &1 &0 \\
-      0 &0 &0 &0 &1 \\
-    \end{bmatrix}, \quad
-    \hat{\textbf{y}}_{t} = 
-    \begin{bmatrix}
-      \hat{y}_{t} \\
-      \hat{y}_{A, t} \\
-      \hat{y}_{B, t} \\
-      \hat{y}_{AA, t} \\
-      \hat{y}_{AB, t} \\
-      \hat{y}_{AC, t} \\
-      \hat{y}_{BA, t} \\
-      \hat{y}_{BB, t} \\
-    \end{bmatrix}.  
-  \end{equation}
-  We can use the matrix \(P\) to define various forecast contribution scenarios. 
-  
-  \paragraph{MinTShrink and variants} \citet{wickramasuriya_optimal_2019} find the optimal \(P\) matrix by solving the following minimization problem for a particular choice of \(W\):
-  \begin{align}
-    \min_P &(\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t})^T W (\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t}) \nonumber \\
-    & \text{s.t.} \quad PS=I.
-  \end{align}
-  Assuming \(W\) is positive definite, this has the following solution (ref. Theorem 1 of \cite{wickramasuriya_optimal_2019}):
-  \begin{align} 
-    P &= (S^TW^{-1}S)^{-1}S^TW^{-1} \nonumber \\
-      &= (J - JWU(U^TWU)^{-1}U^T) \;, \label{eq:p1}
-  \end{align}
-  in which \(S\) is partitioned as \(S^T = [C^T \; I_n]\), \(J = [0_{n \times m^*} \; I_n]\), \(U^T = [I_{m^*} \; -C]\). In \textit{MinTShrink}, \(W\) is estimated using the shrunk empirical covariance estimate of \cite{schafer_shrinkage_2005}. Simpler choices for \(W\), such as the identity matrix, reduce the solution to the \textit{Ordinary Least Squares (OLS)} solution of \cite{hyndman_optimal_2011}.
+\section{Background} \label{sec:background}
+Suppose we have a time series \(\vec{y}_t\), where \(t\) denotes the time stamp. We are interested in estimating future values \(\hat{y}_{t}\) of the time series by employing a model \(f\) based on past values \(y_{t-1}, \dots, y_{t-T}\) of the time series and additional attributes \(X\):
+\begin{equation}
+  \hat{y}_{t} = f(y_{t-1}, \dots, y_{t-T}, X_{t}, X_{t-1}, \dots, X_{t-T}).
+\end{equation}
+In our hierarchical forecasting setting, we aim to create forecasts for many time series concurrently, whilst adherring to pre-specified hierarchical relationships that exist between the time series. This can be formalized as \cite{hyndman_forecasting_2021}:
+\begin{equation} \label{eq:hfp}
+  \tilde{\textbf{y}}_{t} = SP\hat{\textbf{y}}_{t} \;,
+\end{equation}
+where \(\hat{\textbf{y}}_{t} \in \mathbb{R}^{m} \) denotes the vector of forecasts for all \(m\) time series in the hierarchy, \(S \in \{0, 1\}^{m \times n}\) is a matrix that defines the hierarchical relationship between the \(n\) bottom-level time series and the \(m^* = m - n\) aggregations, and \(P \in \mathbb{R}^{n \times m}\) is a matrix that encapsulates the contribution of each forecast to the final estimate. We can use the matrix \(P\) to define various forecast contribution scenarios. Note that we can straightforwardly extend Equation~\eqref{eq:hfp} to the setting of \textit{temporal hierarchies} \cite{athanasopoulos_forecasting_2017,rangapuram_coherent_2023} by considering forecasts of different time granularities in our vector of base forecasts \(\hat{\textbf{y}}_{t}\) and using an appropriate choice of \(S\) to aggregate series of a different time granularity.
 
-  \paragraph{ERM} \citet{bentaieb_regularized_2019} 
-  \begin{align} 
-    B^T &= (S^TS)^{-1}S^T\textbf{y}_{t} \\
-    P   &= ((\hat{\textbf{y}}_{t}^T)^{-1} B)^T
-  \end{align}
+The optimal solution to the problem in Equation~\eqref{eq:hfp} can be found using \textit{Reconciliation methods} and \textit{Other methods}.
 
-  \begin{figure}[t]
-    \centering
-    \includegraphics[height=5cm]{./assets/hts.png}
-    \caption{An hierarchical set of time series. Picture taken from \cite{hyndman_forecasting_2021}.}
-    \label{fig:hts}
-  \end{figure}
+\paragraph{Reconciliation methods}
 
-\section{Hierarchical Forecast Reconciliation in Large-scale Settings}   \label{sec:ourwork}
+\textit{MinTShrink} \cite{wickramasuriya_optimal_2019} and variants find the optimal \(P\) matrix by solving the following minimization problem for a particular choice of \(W\):
+\begin{align}
+  \min_P &(\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t})^T W (\hat{\textbf{y}}_{t} - SP\hat{\textbf{y}}_{t}) \nonumber \\
+  & \text{s.t.} \quad PS=I.
+\end{align}
+Assuming \(W\) is positive definite, this has the following solution (ref. Theorem 1 of \cite{wickramasuriya_optimal_2019}):
+\begin{align} 
+  P &= (S^TW^{-1}S)^{-1}S^TW^{-1} \nonumber \\
+    &= (J - JWU(U^TWU)^{-1}U^T) \;, \label{eq:p1}
+\end{align}
+in which \(S\) is partitioned as \(S^T = [C^T \; I_n]\), \(J = [0_{n \times m^*} \; I_n]\), \(U^T = [I_{m^*} \; -C]\). In \textit{MinTShrink}, \(W\) is estimated using the shrunk empirical covariance estimate of \cite{schafer_shrinkage_2005}. Simpler choices for \(W\), such as the identity matrix, reduce the solution to the \textit{Ordinary Least Squares (OLS)} solution of \cite{hyndman_optimal_2011}. In \textit{ERM}, \citet{bentaieb_regularized_2019} note than \textit{MinTShrink} and variants rely on the assumption of unbiasedness of the base forecasts. Therefore, they relax this assumption by formulating the hierarchical reconciliation problem as an \textit{Empirical Risk Minimization} problem, introducing the \textit{ERM} method. In addition, they propose two regularized variants of \textit{ERM} aimed at reducing forecast variance.
+
+\paragraph{Other methods} \textit{Hier-E2E} \cite{rangapuram_endtoend_2021} solves the problem of Equation~\eqref{eq:hfp} by learning a neural network model that combines the forecasting and reconciliation step in a single model, resulting in an end-to-end solution removing the need for a post-processing step. Similarly, \textit{COPDeepVAR} \cite{rangapuram_coherent_2023} is an end-to-end neural network method that enforces temporal hierarchies, however this is a univariate method that is not able to enforce structural hierarchies (i.e. cross-sectional hierarchies) simultaneously, and therefore not attractive for our task. \textit{SHARQ} \cite{han_simultaneously_2021} also moves the reconciliation step into the training phase and achieves reconciliation using a regularized loss function, where the regularization enforces the coherency. However, this method does not enforce absolute coherency to the hierarchy.
+
+\section{Hierarchical Forecasting in Large-scale Settings}   \label{sec:ourwork}
 Our main motivations of this paper are the limitations of prior work for problem settings with many time series.
 
 \paragraph{Scaling issues with reconciliation methods}
 In reconciliation methods, we see the following issues when scaling to many time series:
 \begin{itemize}
   \item The reconciliation is performed as a \textit{post-processing} step, and thus has to be performed as an additional step after generating the base forecasts. Even though \(P\) in Eq.~\ref{eq:hfp} can be computed once using Eq.~\eqref{eq:p1}, the reconciliation still needs to be performed after each base forecast is produced. Also, \(P\) ideally is sparse \cite{bentaieb_regularized_2019}, but no reconciliation method guarantees this so computing Eq.~\ref{eq:hfp} will generally be a dense matrix-vector product that scales with the number of timeseries.
-  \item For \textit{MinTShrink} \cite{wickramasuriya_optimal_2019}, estimating \(W\) according to the method of \cite{schafer_shrinkage_2005} is computationally expensive, as computing this estimate has a computational complexity of \(O(Nn^2)\), with \(N\) denoting the number of training samples used to compute the shrunk covariance estimate. In addition, the shrunk covariance estimate of \cite{schafer_shrinkage_2005} is not guaranteed to give consistent results in high-dimensional settings \cite{touloumis_nonparametric_2015}, making it less applicable for problem settings with many time series. Finally, the estimate for \(W\) will generally be a dense matrix, so we cannot make use of efficient sparse algorithms to solve Eq.~\eqref{eq:p1}. However, even for simpler, sparse choices of \(W\) (such as the identity matrix of \textit{OLS} \cite{hyndman_optimal_2011}), we still need to invert a matrix of size \(m^* \times m^*\) in order to solve Eq.~\eqref{eq:p1}, which becomes computationally costly for problems with many aggregations, which naturally arise in retail forecasting scenarios. For example, for the M5 retail forecasting competition \cite{makridakis_m5_2020}, \(m^*=12350\), even though there are only 3049 unique products in the dataset.  
+  \item For \textit{MinTShrink} \cite{wickramasuriya_optimal_2019}, estimating \(W\) according to the method of \cite{schafer_shrinkage_2005} is computationally expensive, as computing this estimate has a computational complexity of \(O(Nn^2)\), with \(N\) denoting the number of training samples used to compute the shrunk covariance estimate. In addition, the shrunk covariance estimate of \cite{schafer_shrinkage_2005} is not guaranteed to give consistent results in high-dimensional settings \cite{touloumis_nonparametric_2015}, making it less applicable for problem settings with many time series. Finally, the estimate for \(W\) will generally be a dense matrix, so we cannot make use of efficient sparse algorithms to solve Eq.~\eqref{eq:p1}. However, even for simpler, sparse choices of \(W\) (such as the identity matrix of \textit{OLS} \cite{hyndman_optimal_2011}), we still need to invert a matrix of size \(m^* \times m^*\) in order to solve Eq.~\eqref{eq:p1}, which becomes computationally costly for problems with many aggregations, which naturally arise in retail forecasting scenarios. For example, for the M5 retail forecasting competition \cite{makridakis_m5_2021}, \(m^*=12,350\), even though there are only 3,049 unique products in this dataset.  
   \item For \textit{ERM} and its regularized variants \cite{bentaieb_regularized_2019}, we need to either invert multiple dense matrices that scale quadratically with the number of time series, or we need to compute a Kronecker product that scales quadratically with the number of time series, followed by an expensive lasso search procedure. Improving the computational complexity of the \textit{ERM} methods is also mentioned in \cite{bentaieb_regularized_2019} as an avenue for future work.
 \end{itemize}
 
-\paragraph{Scaling issues with other methods}
-\begin{itemize}
-  \item SHARQ
-  \item DeepVAR
-\end{itemize}
+\paragraph{Scaling issues with other methods} \textit{Hier-E2E} \cite{rangapuram_endtoend_2021} is a multivariate method, which means both input and output of the neural network scale with the number of time series. For neural networks, this significantly adds to the training cost and parameter cost as a large amount of parameters are required to handle all the separate time series. This in turn requires GPUs with more memory to train these models, which increases cost to operate them. 
 
-\section{Sparse Gradients}
-\begin{align}
-  \textbf{y}_{t} &= S  \textbf{y}^n_{t} \nonumber \\
-  \hat{\textbf{y}}_{t} &= S \hat{\textbf{y}}^n_{t} \nonumber \\
-  L &= \frac{1}{m} \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right]
+\section{Sparse Hierarchical Loss}
+We now present our main technical contribution. To find the best forecasts for the hierarchical forecasting problem \eqref{eq:hfp}, we will optimize the following loss function:
+\begin{align} \label{eq:whloss}
+  L &= \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{(i,j)}} \right] \; ,
+\end{align}
+in which \(l\) denotes the number of levels in the hierarchy and \((i, j)\) the (row, column) indices of the elements of the \(S\)-matrix. Note that \eqref{eq:whloss} closely resembles the \textit{Weighted Root Mean Squared Error} from the M5 competition \cite{makridakis_m5_2022}, and the modifications we make are intended to simplify gradient and hessian computation, as we will show next. 
+We are interested in finding bottom-level forecasts that can be aggregated according to a pre-specified hierarchy \(S\), thus \(P = [0_{n \times m^*} \; I_n] \) in ~\ref{eq:hfp} and:
+\begin{equation} \label{eq:hfpbu}
+  \tilde{\textbf{y}}_{t} = S \hat{\textbf{y}}^n_{t} \;,
+\end{equation}
+where \(\hat{\textbf{y}}^n_{t}\) denotes the vector of bottom-level forecasts of length \(n\). 
+Considering only bottom-level forecasts has a number of benefits: (i) each forecast is coherent to any hierarchy by design, and (ii) we reduce the number of required forecasts from \(m\) to \(n\), which can be a significant reduction (there is no need for a forecast for \(m^*\) aggregations in the hierarchy). 
+Now, we can derive the gradient and hessian of \eqref{eq:whloss} with respect to the bottom-level forecasts \(\hat{\textbf{y}}^n_{t}\) : 
+\begin{align} 
+  \frac{\partial L}{\partial \hat{\textbf{y}}_{t}} &=  \left[ \frac{(\hat{\textbf{y}}_{t} - \textbf{y}_{t})}{l \sum_{j=1}^n S_{j}} \right] \;, \label{eq:hfp_grad} \\
+  \frac{\partial L}{\partial \hat{\textbf{y}}^n_{t}} &= \left(\frac{\partial L}{d \hat{\textbf{y}}_{t}}\right)^\intercal S \;, \label{eq:hfpbu_grad}  \\
+  \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n \;.                                               
 \end{align}
 
-\begin{align}
-  \frac{\partial L}{\partial \hat{\textbf{y}}_{t}} &=  \left[ \frac{(\hat{\textbf{y}}_{t} - \textbf{y}_{t})}{l \sum_{j=1}^n S_{ij}} \right] \\
-  \frac{\partial L}{\partial \hat{\textbf{y}}^n_{t}} &= \frac{\partial L}{d \hat{\textbf{y}}_{t}} S \\
-  \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n
+\paragraph{Theoretical analysis} The best possible forecast is achieved when the loss \eqref{eq:whloss} is minimized, or equivalently when the gradient \eqref{eq:hfp_grad} is zero:
+\begin{align} 
+  \frac{\partial L}{\partial \hat{\textbf{y}}_{t}} &=  \left[ \frac{(\hat{\textbf{y}}_{t} - \textbf{y}_{t})}{l \sum_{j=1}^n S_{j}} \right] \;, \nonumber \\
+                                                   &=  \left[ \frac{(S \hat{\textbf{y}}^n_{t} - S \textbf{y}^n_{t})}{l \sum_{j=1}^n S_{j}} \right] \;, \nonumber \\
+                                                   &=  \left[ \frac{S(\hat{\textbf{y}}^n_{t} - \textbf{y}^n_{t})}{l \sum_{j=1}^n S_{j}} \right] \;, \nonumber
 \end{align}
+which becomes zero when \(\hat{\textbf{y}}^n_{t} = \textbf{y}^n_{t}\). Thus, the best forecast model is found when each bottom-level forecast equals the ground truth. This is equivalent to the standard (i.e., non-hierarchical) mean-squared error loss often used in forecasting problems. We argue that our hierarchical loss gradient can be seen as a \textit{smoothed} gradient compared to the standard mean-squared error loss gradient. For example, consider the canonical case where we have two bottom-level time series (\(n=2\)) and a single aggregation (the sum of the two time series), thus \(m^* = 1\) and \(m = m^* + n = 3\). Finally, there are two levels in our hierarchy, thus \(l = 2\). Now, we have:
+\begin{align}
+  \tilde{\textbf{y}}_{t} = \underbrace{
+    \begin{bmatrix}
+    1 &1 \\
+    1 &0 \\
+    0 &1
+    \end{bmatrix}}_S 
+    \underbrace{    
+    \begin{bmatrix}
+      \hat{\textbf{y}}^1_{t} \\
+      \hat{\textbf{y}}^2_{t}
+    \end{bmatrix}}_{\hat{\textbf{y}}^n_{t}} \;,
+\end{align}
+and the gradient of the loss with respect to the bottom level time series \eqref{eq:hfpbu_grad} reads:
+\begin{align} 
+  \begin{bmatrix}
+  \frac{\partial L}{\partial \hat{\textbf{y}}^1_{t}} \\
+  \frac{\partial L}{\partial \hat{\textbf{y}}^2_{t}}
+  \end{bmatrix} 
+  &= \left[ \frac{S(\hat{\textbf{y}}^n_{t} - \textbf{y}^n_{t})}{l \sum_{j=1}^n S_{j}} S \right] \\
+  &=  \left[ \frac{
+    \begin{bmatrix}
+      1 &1 \\
+      1 &0 \\
+      0 &1
+    \end{bmatrix}
+    \left(  
+    \begin{bmatrix}
+      \hat{\textbf{y}}^1_{t} \\
+      \hat{\textbf{y}}^2_{t}
+    \end{bmatrix}  
+    - 
+    \begin{bmatrix}
+      \textbf{y}^1_{t} \\
+      \textbf{y}^2_{t}
+    \end{bmatrix}  
+    \right)
+    }{2 
+    \begin{bmatrix}
+      2 &1 &1
+    \end{bmatrix}^\intercal  
+    } \right]^\intercal
+    \begin{bmatrix}
+      1 &1 \\
+      1 &0 \\
+      0 &1
+    \end{bmatrix} \\
+  &=  \left[ \frac{
+    \begin{bmatrix}
+      \hat{\textbf{y}}^1_{t} + \hat{\textbf{y}}^2_{t} - \textbf{y}^1_{t} - \textbf{y}^2_{t} \\
+      \hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t} \\
+      \hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t} \\
+    \end{bmatrix}
+    }{ 
+    \begin{bmatrix}
+      4 &2 &2
+    \end{bmatrix}^\intercal  
+    } \right]^\intercal
+    \begin{bmatrix}
+      1 &1 \\
+      1 &0 \\
+      0 &1
+    \end{bmatrix} \\
+  &=          
+   \begin{bmatrix}
+     \frac{1}{4}(\hat{\textbf{y}}^1_{t} + \hat{\textbf{y}}^2_{t} - \textbf{y}^1_{t} - \textbf{y}^2_{t}) \\
+     \frac{1}{2}(\hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t}) \\
+     \frac{1}{2}(\hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t}) \\
+   \end{bmatrix}^\intercal
+   \begin{bmatrix}
+     1 &1 \\
+     1 &0 \\
+     0 &1
+   \end{bmatrix} \\
+  &=
+    \begin{bmatrix}
+      \frac{1}{4}(\hat{\textbf{y}}^1_{t} + \hat{\textbf{y}}^2_{t} - \textbf{y}^1_{t} - \textbf{y}^2_{t}) \\
+      \frac{1}{2}(\hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t}) \\
+      \frac{1}{2}(\hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t}) \\
+    \end{bmatrix}   
+\end{align}  
+  
+  
+  
+%   &= \frac{\partial L}{d \hat{\textbf{y}}_{t}} S \;, \\
+%   \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n \;.                                               
+% \end{align}
+
+
+% \paragraph{Computational efficiency} In a forecasting system where a single global model is trained to produce bottom-level forecasts, we can 
+
+
+
+
+
+
+
+% \paragraph{Sparsity}
+
+
+% \begin{align} 
+%   \frac{\partial L}{\partial \hat{\textbf{y}}_{t}} &=  \left[ \frac{(\hat{\textbf{y}}_{t} - \textbf{y}_{t})}{l \sum_{j=1}^n S_{j}} \right] \;, \nonumber \\
+%                                                    &=  \left[ \frac{(S \hat{\textbf{y}}^n_{t} - S \textbf{y}^n_{t})}{l \sum_{j=1}^n S_{j}} \right] \;.
+% \end{align}
+
+
+% We can compute the gradient and hessian of this loss function with respect to the bottom-level forecasts \(\hat{\textbf{y}}^n_{t}\):
+% \begin{align}                                                   
+%   \frac{\partial L}{\partial \hat{\textbf{y}}^n_{t}} &= \frac{\partial L}{d \hat{\textbf{y}}_{t}} S \;, \\
+%   \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n \;.                                               
+% \end{align}
+
+
+
+
+
+
+% As \(\hat{\textbf{y}}_{t} = S \hat{\textbf{y}}^n_{t}\) and 
+
+% \begin{align} 
+%   \frac{\partial L}{\partial \hat{\textbf{y}}^n_{t}} &= \frac{\partial L}{d \hat{\textbf{y}}_{t}} S \\
+%   \frac{\partial^2 L}{\partial \hat{\textbf{y}}_{t}^{n, 2}} &= \mathbf{1}^n
+% \end{align}
+
+
+% \begin{align}
+%   \hat{\textbf{y}}_{t} &= S \hat{\textbf{y}}^n_{t} \nonumber \\
+%   \textbf{y}_{t} &= S  \textbf{y}^n_{t} \nonumber \\
+%   L &= \frac{1}{m} \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right]
+% \end{align}
+% Because we only consider bottom-level forecasts, thus \(P = [\textbf{0} \; I_n] \) in Equation~\ref{eq:hfp} and we 
+
+
+
+% \begin{align}
+%   L &= \frac{1}{m} \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right]
+% \end{align}
+
+
+
+
 
 \section{Experiments}
   \label{sec:experiments}
@@ -276,20 +378,18 @@ In reconciliation methods, we see the following issues when scaling to many time
 \section{Conclusion}
   \label{sec:conclusion}
 
+\section*{Acknowledgments}
+  This research was (partially) funded by the Hybrid Intelligence Center, a 10-year program funded by the Dutch Ministry of Education, Culture and Science through the Netherlands Organisation for Scientific Research.\footnote{\url{https://www.hybrid-intelligence-centre.nl/}}
+
+  All content represents the opinion of the authors, which is not necessarily shared or endorsed by their respective employers and/or sponsors.
+  
+  We thank the reviewers for their constructive feedback and help on improving our work. 
+
 \clearpage
 
 \appendix
 
-% \begin{ack}
-%   This research was (partially) funded by the Hybrid Intelligence Center, a 10-year program funded by the Dutch Ministry of Education, Culture and Science through the Netherlands Organisation for Scientific Research.\footnote{\url{https://www.hybrid-intelligence-centre.nl/}}
-
-%   All content represents the opinion of the authors, which is not necessarily shared or endorsed by their respective employers and/or sponsors.
-  
-%   We thank the reviewers for their constructive feedback and help on improving our work. 
-
-% \end{ack}
-
-\bibliographystyle{elsarticle-num} 
+\bibliographystyle{elsarticle-num-names} 
 \bibliography{lib}
 
 \end{document}

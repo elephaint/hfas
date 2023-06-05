@@ -36,37 +36,71 @@ df[aggregation_cols] = df[aggregation_cols].astype('int')
 df = df.merge(bottom_timeseries, how='left', left_on=aggregation_cols, right_on=aggregation_cols)
 df_target = df.set_index([time_index, 'bottom_timeseries'])[target].unstack(1, fill_value=0)
 #%% Define loss functions and evaluate gradient and hessian
-def hierarchical_eval_se(yhat, y, S, n_levels):
+def hierarchical_eval_se(yhat_bottom, y, S, n_levels):
     # Compute predictions for all aggregations
-    yhat = (S @ yhat.reshape(-1, S.shape[1]).T)
+    yhat = (S @ yhat_bottom.reshape(-1, S.shape[1]).T)
     loss = anp.sum(0.5 * anp.square(y - yhat) / (n_levels * anp.sum(S, axis=1, keepdims=True)))
     
     return  anp.sum(loss)
 
-def hierarchical_obj_se2(yhat, y, S, n_levels):
+def hierarchical_obj_se2(yhat_bottom, y, S, n_levels):
     # Address discrepancy in the output and workings of np.sum with sparse vs dense arrays
     if issparse(S):
-        denominator = (n_levels * np.sum(S, axis=1)).A
+        denominator = 1 / (n_levels * np.sum(S, axis=1)).A
+        hessian = np.sum(denominator.squeeze() * S, axis = 0)
     else:
-        denominator = (n_levels * np.sum(S, axis=1, keepdims=True))
+        denominator = 1 / (n_levels * np.sum(S, axis=1, keepdims=True))
+        hessian = np.sum(denominator * S, axis = 0)
     # Compute predictions for all aggregations
-    yhat_bottom = yhat.astype(S.dtype).reshape(-1, S.shape[1]).T
-    yhat = (S @ yhat_bottom)
-    gradient_agg = (yhat - y) / denominator
+    yhat_bottom_reshaped = yhat_bottom.astype(S.dtype).reshape(-1, S.shape[1]).T
+    yhat = (S @ yhat_bottom_reshaped)
+    gradient_agg = (yhat - y) * denominator
     gradient = (gradient_agg.T @ S).reshape(-1)
-    hessian = np.ones_like(gradient)
 
     return gradient, hessian
-
+#%%
 rng = np.random.default_rng(seed=0)
 S = df_S.sparse.to_dense().values.astype('float64')
 y = (S @ df_target.T.values).astype('float64')
-yhat = np.random.rand(y.shape[1] * S.shape[1])
+yhat_bottom = np.random.rand(y.shape[1] * S.shape[1])
 n_levels = df_S.index.get_level_values('Aggregation').nunique()
+
 grad_hierarchical_se = grad(hierarchical_eval_se)
-gradient = grad_hierarchical_se(yhat, y, S, n_levels)
-gradient_exact, hessian_exact = hierarchical_obj_se2(yhat, y, S, n_levels)
+gradient = grad_hierarchical_se(yhat_bottom, y, S, n_levels)
+gradient_exact, hessian_exact = hierarchical_obj_se2(yhat_bottom, y, S, n_levels)
 assert np.allclose(gradient, gradient_exact)
-epsilon = 1e-6
-auto_hessian = (grad_hierarchical_se(yhat + epsilon, y, S, n_levels) - grad_hierarchical_se(yhat - epsilon, y, S, n_levels)) / (2 * epsilon)
+auto_hessian = np.zeros(gradient.shape[0])
+eps = 1e-9
+S = df_S.sparse.to_coo()
+for i in range(gradient.shape[0]):
+    epsilon = np.zeros(gradient.shape[0])
+    epsilon[i] = eps
+    gradient_upper, _ = hierarchical_obj_se2(yhat_bottom  + epsilon, y, S, n_levels)
+    gradient_lower, _ = hierarchical_obj_se2(yhat_bottom  - epsilon, y, S, n_levels)
+    auto_hessian[i] = (gradient_upper[i] - gradient_lower[i]) / (2 * eps)
+    if i == 10:
+        break
+assert np.allclose(hessian_exact, auto_hessian)
+
+#%%
+S = np.array([[1, 1],[1, 0],[0, 1]]).astype('float64')
+# S = np.array([[1, 0],[0, 1]]).astype('float64')
+y_bottom = np.random.rand(S.shape[1], 1)
+y = (S @ y_bottom).astype('float64')
+yhat_bottom = np.random.rand(y.shape[1] * S.shape[1])
+n_levels = S.sum(1).max()
+# n_levels = 1
+
+grad_hierarchical_se = grad(hierarchical_eval_se)
+gradient = grad_hierarchical_se(yhat_bottom, y, S, n_levels)
+gradient_exact, hessian_exact = hierarchical_obj_se2(yhat_bottom, y, S, n_levels)
+assert np.allclose(gradient, gradient_exact)
+auto_hessian = np.zeros(gradient.shape[0])
+eps = 1e-9
+for i in range(gradient.shape[0]):
+    epsilon = np.zeros(gradient.shape[0])
+    epsilon[i] = eps
+    gradient_upper, _ = hierarchical_obj_se2(yhat_bottom  + epsilon, y, S, n_levels)
+    gradient_lower, _ = hierarchical_obj_se2(yhat_bottom  - epsilon, y, S, n_levels)
+    auto_hessian[i] = (gradient_upper[i] - gradient_lower[i]) / (2 * eps)
 assert np.allclose(hessian_exact, auto_hessian)
