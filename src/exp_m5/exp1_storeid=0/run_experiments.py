@@ -50,8 +50,9 @@ for experiment in experiments_global:
         df_result = pd.concat((df_result, dfc))
     df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')
 #%% Setting 2: separate model for each aggregation in the hierarchy
-experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
+experiments_agg = [{'exp_name':'sepagg_objmse_evalmse'}]
 for experiment in experiments_agg:
+    df_result = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
         params = default_params.copy()
@@ -63,8 +64,10 @@ for experiment in experiments_agg:
         forecasts_test = forecast_seed.loc[:, start_test:]
         forecasts_methods = apply_reconciliation_methods(forecasts_test, df_S, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
                         methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True)
-        # Store all forecasts
-        experiment[f'forecast_seed_{seed}'] = forecasts_methods
+        # Add result to result df
+        dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
+        df_result = pd.concat((df_result, dfc))
+    df_result.to_csv(f'./src/exp_m5/{folder}/{exp_name}.csv')
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
                     {'exp_name':'bu_objmse_evalmse',
@@ -82,12 +85,12 @@ experiments_bu = [
                     {'exp_name':'bu_objtweedie_evaltweedie',
                     'fobj':'tweedie',
                     'feval': 'tweedie'},
-                    {'exp_name':'bu_objhse_evalhmse',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalmse',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'l2'},
+                    # {'exp_name':'bu_objhse_evalhmse',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalmse',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'l2'},
                     {'exp_name':'bu_objrhse_evalhmse',
                     'fobj': 'hierarchical_obj_se_random',
                     'feval': 'hierarchical_eval_hmse'},

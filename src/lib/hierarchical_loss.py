@@ -9,16 +9,23 @@ def hierarchical_obj_se(preds, train_data, S):
     assert issparse(S), "S should be a scipy sparse matrix"
     n_levels = train_data.params['n_levels']
     # Compute predictions for all aggregations
-    denominator = (n_levels * np.sum(S, axis=1)).A
+    denominator = 1 / (n_levels * np.sum(S, axis=1)).A
     yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
     y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
-    yhat = (S @ yhat_bottom)
-    y = (S @ y_bottom)
+    # yhat = (S @ yhat_bottom)
+    # y = (S @ y_bottom)
     # Compute gradients for all aggregations
-    gradient_agg = (yhat - y) / denominator
+    # gradient_agg = (yhat - y) / denominator
+    gradient_agg = (S @ (yhat_bottom - y_bottom)) * denominator
     # Convert gradients back to bottom-level series
     gradient = (gradient_agg.T @ S).reshape(-1)
-    hessian = np.ones_like(gradient)
+    # hessian = np.ones_like(gradient)
+    # hessian = np.sum(denominator.squeeze() * S, axis = 0)
+    hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T
+    hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
+    # hessian = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).squeeze()
+    # print(hessian.shape)
+    # print(denominator.shape)
 
     return gradient, hessian
 
@@ -53,19 +60,21 @@ def hierarchical_obj_se_random(preds, train_data, S=None):
         # Construct S: stack top, aggregations and bottom 
         S = vstack([S_top, S_aggs, S_bottom])
         # Calculate gradient and hessian
-        denominator = ((n_levels_random + 2) * np.sum(S, axis=1)).A
+        denominator = 1 / ((n_levels_random + 2) * np.sum(S, axis=1)).A
         # Compute predictions for all aggregations
         yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
         y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
         yhat = (S @ yhat_bottom)
         y = (S @ y_bottom)
         # Compute gradients for all aggregations
-        gradient_agg = (yhat - y) / denominator
+        gradient_agg = (yhat - y) * denominator
         # Convert gradients back to bottom-level series
         gradient = (gradient_agg.T @ S).reshape(-1)
+        hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T
+        hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
     else:
         gradient = (preds - train_data.get_label())
-    hessian = np.ones_like(gradient)
+        hessian = np.ones_like(gradient)
 
     return gradient, hessian
 
