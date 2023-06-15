@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import optuna
 import joblib
+import time
 from pathlib import Path
 from src.lib import hierarchical_obj_se, hierarchical_eval_mse, hierarchical_obj_se_random
 from hierts.reconciliation import aggregate_bottom_up_forecasts
@@ -87,15 +88,14 @@ def get_best_params(params, param_filename, train_set, fobj, feval):
         print('Using optimized params')
         study = joblib.load(param_filename)
         params.update(study.best_params)
-        # params['n_estimators'] = study.best_trial.user_attrs['best_iter']
-        params['n_estimators'] = 1641
+        params['n_estimators'] = study.best_trial.user_attrs['best_iter']
     else:
         print('Using default params')
     
     return params
 
 #%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
-def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
+def exp_m5_globalall_timing(X, Xind, targets, target, time_index, end_train, 
                     exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
     # Set parameters
     params['seed'] = seed
@@ -116,17 +116,26 @@ def exp_m5_globalall(X, Xind, targets, target, time_index, end_train,
     param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
     params = get_best_params(params, param_filename, train_set, fobj, feval)
     # Train & save model
+    best_estimators = params['n_estimators']
+    params['n_estimators'] = 10
+    start = time.perf_counter()
     model = lgb.train(params, train_set)
-    joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_model.pkl')
+    end = time.perf_counter()
+    t_train = (end - start) / params['n_estimators']
+    t_train *= best_estimators
     # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+    start = time.perf_counter()   
     yhat = model.predict(X.drop(columns=[target]))
     yhat = np.clip(yhat, 0, 1e9).astype('float32')
     df_yhat = pd.Series(index=Xind, data=yhat)
     forecasts = df_yhat.unstack([time_index]).loc[targets.index, X.index.get_level_values(time_index).unique()]
+    end = time.perf_counter()
+    t_predict = (end - start)  / params['n_estimators']
+    t_predict *= best_estimators
 
-    return forecasts
+    return forecasts, t_train, t_predict
 #%% Setting 2: A separate model for each aggregation in the hierarchy
-def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S, 
+def exp_m5_sepagg_timing(X, Xind, targets, target, time_index, end_train, df_S, 
                     exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
     # Create parameter dict
     params['seed'] = seed
@@ -139,8 +148,11 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S,
     params['metric'] = 'l2'
     # Loop over aggregations
     forecasts_levels = []
+    default_params = params.copy()
+    t_train, t_predict = 0.0, 0.0
     for level in df_S.index.get_level_values('Aggregation').unique():
         print(f'Training level: {level}')
+        params_level = default_params.copy()
         # Only keep bottom-level timeseries
         Xl_ind = pd.DataFrame(index=Xind).loc[level].index
         Xl = X[X['Aggregation'] == level]
@@ -150,28 +162,44 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S,
         train_set = lgb.Dataset(X_train, y_train)    
         # Tune if required
         param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_best_params.params'
-        params = get_best_params(params, param_filename, train_set, fobj, feval)
+        params_level = get_best_params(params_level, param_filename, train_set, fobj, feval)
         # Train & save model
-        model = lgb.train(params, train_set)
-        joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_model.pkl')
+        best_estimators = params['n_estimators']
+        params['n_estimators'] = 10
+        start = time.perf_counter()
+        model = lgb.train(params_level, train_set)
+        end = time.perf_counter()
+        timing = (end - start) / params['n_estimators']
+        timing *= best_estimators
+        t_train += timing
         # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+        start = time.perf_counter()
         yhat = model.predict(Xl.drop(columns=[target]))
         yhat = np.clip(yhat, 0, 1e9).astype('float32')
         df_yhat = pd.Series(index=Xl_ind, data=yhat)
         forecasts_level = df_yhat.unstack([time_index]).loc[targets.loc[level].index, Xl.index.get_level_values(time_index).unique()]
         forecasts_levels.append(pd.concat({f'{level}': forecasts_level}, names=['Aggregation']))
+        end = time.perf_counter()
+        timing = (end - start) / params['n_estimators']
+        timing *= best_estimators
+        t_predict += timing
 
     forecasts = pd.concat(forecasts_levels)
 
-    return forecasts
+    return forecasts, t_train, t_predict
 #%% Setting 3: A single global model that forecasts ONLY the bottom level timeseries
-def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_bottom_timeseries, 
+def exp_m5_globalbottomup_timing(X, Xind, targets, target, time_index, end_train, name_bottom_timeseries, 
                             df_S, exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
     # Only keep bottom-level timeseries
     Xb_ind = pd.DataFrame(index=Xind).loc[name_bottom_timeseries].index
     Xb = X[X['Aggregation'] == name_bottom_timeseries]
     # Convert df_S 
-    S = csc_matrix(df_S.sparse.to_coo())
+    if hasattr(df_S, "sparse"):
+        print("S is sparse")
+        S = csc_matrix(df_S.sparse.to_coo())
+    else:
+        print("S is dense")
+        S = df_S.values
     # Create parameter dict
     params['seed'] = seed
     params['bagging_seed'] = seed
@@ -211,14 +239,29 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_
     param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
     params = get_best_params(params, param_filename, train_set, fobj, feval)
     # Train & save model
+    best_estimators = params['n_estimators']
+    params['n_estimators'] = 10
+    start = time.perf_counter()
     model = lgb.train(params, train_set, fobj=fobj)
-    joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_model.pkl')
+    end = time.perf_counter()
+    t_train = (end - start) / params['n_estimators']
+    t_train *= best_estimators
     # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+    start = time.perf_counter()
     yhat = model.predict(Xb.drop(columns=[target]))
     yhat = np.clip(yhat, 0, 1e9).astype('float32')
     df_yhat = pd.Series(index=Xb_ind, data=yhat)
-    forecasts_bu_bottom_level = df_yhat.unstack([time_index]).loc[targets.loc[name_bottom_timeseries].index, Xb.index.get_level_values(time_index).unique()]
+    forecasts = df_yhat.unstack([time_index]).loc[targets.loc[name_bottom_timeseries].index, Xb.index.get_level_values(time_index).unique()]
     # Aggregate bottom-up forecasts
-    forecasts_bu = aggregate_bottom_up_forecasts(forecasts_bu_bottom_level, df_S, name_bottom_timeseries)
+    # forecasts_bu = aggregate_bottom_up_forecasts(forecasts_bu_bottom_level, df_S, name_bottom_timeseries)
+    assert set(df_S.columns) == set(forecasts.index), 'Index of forecasts should match columns of df_S'
+    # Bottom-up forecasts
+    all_aggregations = df_S.index.get_level_values('Aggregation').unique()
+    all_aggregations = all_aggregations.drop(name_bottom_timeseries)
+    forecasts_bu = pd.DataFrame(index=df_S.index, columns=forecasts.columns)
+    forecasts_bu.loc[:] = (S @ forecasts.values)
+    end = time.perf_counter()
+    t_predict = (end - start)  / params['n_estimators']
+    t_predict *= best_estimators
 
-    return forecasts_bu
+    return forecasts_bu, t_train, t_predict

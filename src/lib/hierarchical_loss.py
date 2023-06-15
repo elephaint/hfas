@@ -6,26 +6,24 @@ from scipy.sparse import issparse, csc_matrix, vstack, eye
 def hierarchical_obj_se(preds, train_data, S):
     # Get required fields
     assert 'n_levels' in train_data.params, 'Train data should contain parameter n_levels, the number of levels in the hierarchy'   
-    assert issparse(S), "S should be a scipy sparse matrix"
     n_levels = train_data.params['n_levels']
+    # Switch sparse/dense
+    if issparse(S):
+        denominator = 1 / (n_levels * np.sum(S, axis=1)).A
+        hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T    
+    else:
+        denominator = 1 / (n_levels * np.sum(S, axis=1, keepdims=True))
+        hessian_step = np.sum(S.T * denominator.T, axis=1, keepdims=True).T
+
     # Compute predictions for all aggregations
-    denominator = 1 / (n_levels * np.sum(S, axis=1)).A
     yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
     y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
-    # yhat = (S @ yhat_bottom)
-    # y = (S @ y_bottom)
     # Compute gradients for all aggregations
-    # gradient_agg = (yhat - y) / denominator
     gradient_agg = (S @ (yhat_bottom - y_bottom)) * denominator
     # Convert gradients back to bottom-level series
     gradient = (gradient_agg.T @ S).reshape(-1)
-    # hessian = np.ones_like(gradient)
-    # hessian = np.sum(denominator.squeeze() * S, axis = 0)
-    hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T
-    hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
-    # hessian = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).squeeze()
-    # print(hessian.shape)
-    # print(denominator.shape)
+    # Compute hessian
+    hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
 
     return gradient, hessian
 
@@ -71,7 +69,8 @@ def hierarchical_obj_se_random(preds, train_data, S=None):
         # Convert gradients back to bottom-level series
         gradient = (gradient_agg.T @ S).reshape(-1)
         hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T
-        hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
+        # hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
+        hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
     else:
         gradient = (preds - train_data.get_label())
         hessian = np.ones_like(gradient)

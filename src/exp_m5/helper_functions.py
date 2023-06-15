@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, issparse
 from pathlib import Path
 #%% Read data
 def read_m5(first_date='01-01-2012', last_date='22-05-2016', store_level=True, store_id=0):
@@ -30,9 +30,14 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
     df[aggregation_cols] = df[aggregation_cols].astype('int')
     df = df.merge(bottom_timeseries, how='left', left_on=aggregation_cols, right_on=aggregation_cols)
     # Create target df
-    S = csc_matrix(df_S.sparse.to_coo())
+    if hasattr(df_S, "sparse"):
+        print("S is sparse")
+        S = csc_matrix(df_S.sparse.to_coo())
+    else:
+        print("S is dense")
+        S = df_S.values
     df_target = df.set_index([time_index, 'bottom_timeseries'])[target].unstack(1, fill_value=0)
-    targets = (S @ df_target.T).astype('float32')
+    targets = (S @ df_target.T.values).astype('float32')
     targets = pd.DataFrame(index=df_S.index, columns=df_target.T.columns, data=targets)
     targets_flat = targets.stack([time_index]).sort_index(level=[time_index, 'Aggregation', 'Value'])
     targets_flat.name = target    
@@ -65,18 +70,19 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
     # Prices (use average price for aggregations)
     df_prices = df.set_index([time_index, 'bottom_timeseries'])['sell_price'].unstack(1)
     df_prices = df_prices.fillna(method='ffill').fillna(method='bfill')
-    prices = S @ df_prices.T
+    prices = S @ df_prices.T.values
     prices = pd.DataFrame(index=df_S.index, columns=df_prices.T.columns, data=prices)
-    prices = prices / S.sum(axis=1)
+    S_sum = np.array(S.sum(axis=1)).squeeze()[:, None]
+    prices = prices / S_sum
     df_prices_flat = prices.stack([time_index]).sort_index(level=[time_index, 'Aggregation', 'Value'])
     df_price_change_flat = df_prices_flat.groupby(['Aggregation', 'Value']).shift(1) / df_prices_flat.groupby(['Aggregation', 'Value']).shift(0) - 1
     X['sell_price_avg'] = df_prices_flat.astype('float32')
     X['sell_price_change'] = df_price_change_flat.astype('float32')
     # Weeks on sale (use average for aggregations)
     df_weeks_on_sale = df.set_index([time_index, 'bottom_timeseries'])['weeks_on_sale'].unstack(1, fill_value=0)
-    weeks_on_sale = S @ df_weeks_on_sale.T
+    weeks_on_sale = S @ df_weeks_on_sale.T.values
     weeks_on_sale = pd.DataFrame(index=df_S.index, columns=df_weeks_on_sale.T.columns, data=weeks_on_sale)
-    weeks_on_sale = weeks_on_sale / S.sum(axis=1)
+    weeks_on_sale = weeks_on_sale / S_sum
     df_weeks_on_sale_flat = weeks_on_sale.stack([time_index]).sort_index(level=[time_index, 'Aggregation', 'Value'])
     X['weeks_on_sale_avg'] = df_weeks_on_sale_flat.astype('float32')
     # Add other information

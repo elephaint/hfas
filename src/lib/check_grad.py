@@ -56,12 +56,13 @@ def hierarchical_obj_se2(yhat_bottom, y, S, n_levels):
     yhat = (S @ yhat_bottom_reshaped)
     gradient_agg = (yhat - y) * denominator
     gradient = (gradient_agg.T @ S).reshape(-1)
-    hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
+    hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
 
     return gradient, hessian
 #%%
 rng = np.random.default_rng(seed=0)
-S = df_S.sparse.to_dense().values.astype('float64')
+# S = df_S.sparse.to_dense().values.astype('float64')
+S = df_S.sparse.to_coo()
 y = (S @ df_target.T.values).astype('float64')
 yhat_bottom = np.random.rand(y.shape[1] * S.shape[1])
 n_levels = df_S.index.get_level_values('Aggregation').nunique()
@@ -105,3 +106,11 @@ for i in range(gradient.shape[0]):
     gradient_lower, _ = hierarchical_obj_se2(yhat_bottom  - epsilon, y, S, n_levels)
     auto_hessian[i] = (gradient_upper[i] - gradient_lower[i]) / (2 * eps)
 assert np.allclose(hessian_exact, auto_hessian)
+#%% Sparse grad - code check for bol.com
+from scipy.sparse import csc_array
+mask = csc_array((np.ones(6), ([0, 0, 1, 1, 30489, 30489], [0, 1, 1236, 1237, 0, 1])), shape=(30490, 1238))
+hessian_step = csc_array(np.sum(S.T.multiply(denominator.T), axis=1).T)
+hessian_full = csc_array(hessian_step.todense().repeat(1238, axis=0))
+
+hessian_sparse = csc_array(mask.T * hessian_step)
+hessian_sparse2 = csc_array(mask.T * hessian_full)

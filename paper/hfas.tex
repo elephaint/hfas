@@ -58,6 +58,7 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{rotating}
+\usepackage{float}
 
 %% The amsthm package provides extended theorem environments
 %% \usepackage{amsthm}
@@ -96,22 +97,10 @@
 \begin{abstract}
   Hierarchical forecasting techniques allow creation of forecasts that are coherent with respect to a pre-specified hierarchy of the underlying time series. This targets a key problem in e-commerce, where we often find millions of products across many product hierarchies, and forecasts need to be made for both individual products and product aggregations. However, existing hierarchical forecasting techniques scale poorly when the number of time series increases, which limits their potential for application at a scale of millions of products. 
   
-  In this paper, we investigate the use of learning a coherent forecast for millions of products with a single bottom-level forecast model by using a loss function that directly optimizes the hierarchical product structure. We implement our loss function using sparse linear algebra, such that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted, temporal) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline. 
+  In this paper, we investigate the use of learning a coherent forecast for millions of products with a single bottom-level forecast model by using a loss function that directly optimizes the hierarchical product structure. We implement our loss function using sparse linear algebra, such that the number of operations in our loss function scales quadratically rather than cubically with the number of products and levels in the hierarchical structure. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline. 
   
-  In our tests on the public M5 dataset, our sparse hierarchical loss function performs on par with the baseline loss function. Next, we implemented our sparse hierarchical loss function within an existing gradient boosting-based forecasting model at bol.com, a large European e-commerce platform. Unfortunately, in this setting our sparse hierarchical loss resulted in a slightly worse forecasting performance as measured by RMSE of about 1\% at the product level, as compared to the the baseline model. 
+  In our tests on the public M5 dataset, our sparse hierarchical loss function performs up to 10\% better as compared to the baseline loss function. Next, we implemented our sparse hierarchical loss function within an existing gradient boosting-based forecasting model at bol.com, a large European e-commerce platform. Unfortunately, in this setting our sparse hierarchical loss resulted in a slightly worse forecasting performance as measured by RMSE of about 1\% at the product level, as compared to the the baseline model. 
   
-  % We achieve this by introduce a sparse hierarchical loss function that allows us to create hierarchical forecasts in a computationally efficient way such that orders of magnitude more time series can be considered compared to existing hierarchical forecasting techniques.   
-  
-  % In this paper, we introduce a sparse hierarchical loss function that allows us to create hierarchical forecasts in a computationally efficient way such that orders of magnitude more time series can be considered compared to existing hierarchical forecasting techniques. We implement our sparse hierarchical loss function within an existing forecasting system at bol.com, a large European e-commerce platform. 
-  
-  % Hierarchical forecasting techniques allow creation of forecasts that are coherent with respect to a pre-specified hierarchy of the underlying time series. This targets a key problem in e-commerce, where we often find millions of products across many product hierarchies and forecasts need to be made for both individual products and product aggregations. Applying existing hierarchical forecasting techniques across millions of products is computationally demanding, as these techniques scale poorly with respect to the number of products or product groups.
-  
-  % For one of the largest ecommerce companies in the Netherlands, we investigated the use of learning a coherent forecast for millions of products with a single bottom-level forecast model by using a loss function that directly optimizes the hierarchical product structure. We implemented this using sparse linear algebra, such that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure. We chose a gradient boosting model for our forecasts, as this is also the baseline forecasting model in the company and these models have shown strong performance in recent forecasting competitions with similar data characteristics (e.g. M5 competition). The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierachical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline. 
-
-  % In our offline tests on the M5 dataset, our sparse hierarchical loss function performed on par with the baseline loss function. Unfortunately, in our production setting, our sparse hierarchical loss resulted in a slightly worse forecasting performance as measured by RMSE of about 1\% at the product level, as compared to the the baseline model that used a tweedie loss function. 
-
-  % are typically applied as a post-processing step that requires a matrix inversion that scales quadratically with the number of products or product groups.
-
 \end{abstract}
 
 \begin{keyword}
@@ -120,36 +109,32 @@
 
 \end{frontmatter}
 
-% Intro alternative snippets
-% time series, where individual time series may be aggregated into increasingly larger aggregations that are meaningful from the perspective of the forecasting application, such as individual product demand that may be aggregated into department demand, to store demand, to regional demand. 
+\section{Introduction} \label{sec:intro}
+In e-commerce, we are often faced with two forecasting challenges. First, forecasts at the lowest granularity - often the individual product level - are required but we also need forecasts for higher granularities, for example at the category, department or regional level. It is common that separate forecast models are made for each separate granularity, and as such these forecasts may not be coherent with each other. Hierarchical forecasting techniques \cite{hyndman_optimal_2011} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified cross-sectional hierarchy of the underlying time series. Second, contemporary large-scale forecasting applications require forecasting many time series concurrently \cite{bose_probabilistic_2017} and at increasingly lower time intervals, thus requiring faster training and prediction times, which in turn requires forecasting methods that scale better when the number of time series increases. In this work, we are interested in solving both these forecasting challenges.
 
-\section{Introduction}
-In e-commerce, we may need forecasts for millions of products concurrently \cite{bose_probabilistic_2017}, and we are often faced with two forecasting challenges. First, forecasts at the lowest granularity - often the individual product level - are required but we also need forecasts for higher granularities, for example at the category, department or regional level. Second, forecasts at different time granularities are required, for example daily or weekly forecasts. It is common that separate forecast models are made for each separate (temporal) granularity, and as such these forecasts may not be coherent with each other. Hierarchical forecasting \cite{hyndman_optimal_2011} and temporal hierarchical forecasting techniques \cite{athanasopoulos_forecasting_2017,rangapuram_coherent_2023,theodosiou_forecasting_2021} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified (temporal) hierarchy of the underlying time series. 
-
-\paragraph{Challenges with existing (temporal) hierarchical forecasting techniques} Reconciliation methods \cite{hyndman_optimal_2011,athanasopoulos_forecasting_2017,wickramasuriya_optimal_2019} apply a post-processing step that requires a matrix inversion that scales cubically with the number of products or product hierarchies. In settings with millions of products such as in e-commerce, this becomes computationally very expensive at prediction time. Neural network methods \cite{rangapuram_endtoend_2021,rangapuram_coherent_2023} directly optimize for the (temporal) hierarchy in an end-to-end manner. However, these multivariate methods require a forward pass over all training samples at every training epoch, which becomes computionally very expensive at training time in settings with millions of products. 
+\paragraph{Scaling challenges with existing hierarchical forecasting techniques} Reconciliation methods \cite{hyndman_optimal_2011,athanasopoulos_forecasting_2017,wickramasuriya_optimal_2019} apply a post-processing step that requires a matrix inversion that scales cubically with the number of products or product hierarchies. In settings with millions of products such as in e-commerce, this becomes computationally expensive at prediction time. Neural network methods \cite{rangapuram_endtoend_2021} directly optimize for the cross-sectional hierarchy in an end-to-end manner. However, these multivariate methods require a forward pass over all training samples at every training epoch, which becomes computionally expensive at training time in settings with millions of products. 
   
-\paragraph{Sparse loss function} In order to overcome these scaling issues, we implement a sparse hierarchical loss function that directly optimizes the (temporal) hierarchical structure. Our sparse implementation ensures that the number of operations in our loss function scales linearly rather than quadratically with the number of products and levels in the hierarchical structure, enabling computationally efficient training. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen (weighted, temporal) hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline.
+\paragraph{Sparse loss function} In order to overcome these scaling issues, we implement a sparse hierarchical loss function that directly optimizes the hierarchical structure. Our sparse implementation ensures that the number of operations in our loss function scales quadratically rather than cubically with the number of products and levels in the hierarchical structure, enabling computationally efficient training. The benefit of our sparse hierarchical loss function is that it provides practitioners a method of producing bottom-level forecasts that are coherent to any chosen hierarchy. In addition, removing the need for a post-processing step as used in traditional hierarchical forecasting techniques reduces the computational cost of the prediction phase in the forecasting pipeline.
 
-\paragraph{Evaluation} We evaluate our sparse hierarchical loss function on a gradient-boosted forecasting system on public (M5) and private (bol.com) datasets. For the M5 dataset, we demonstrate that our implementation provides similar or better forecasting performance compared with reconciliation methods and neural network methods. For the private dataset, we present the results of an offline test on the product-level forecast system of bol.com, a European e-commerce company selling millions of products. Unfortunately, results from our offline test showed slightly worse performance as compared to the existing forecasting system at bol.com. 
+\paragraph{Evaluation} We evaluate our sparse hierarchical loss function on a gradient-boosted forecasting system on the public M5 dataset \cite{makridakis_m5_2022} and a private dataset from our e-commerce partner. For the M5 dataset, we demonstrate that our implementation provides up to 10\% better forecasting performance as measured by RMSE compared with reconciliation methods and baseline bottom-level forecasting methods using a standard loss function. For the private dataset, we present the results of an offline test on the product-level forecast system of bol.com, a European e-commerce company with a catalog of millions of unnique products. Unfortunately, results from our offline test showed slightly worse performance as compared to the existing forecasting system at bol.com. [+ further explanation]
 
 \paragraph{Contributions} In summary, the main contributions of this paper are:
 \begin{enumerate}
-  \item We present a sparse hierarchical loss function that enables direct end-to-end training of (temporal) hierarchical forecasts in large-scale settings.
-  \item We empirically demonstrate that a sparse hierarchical loss function outperforms existing (temporal) hierarchical forecasting methods by up to [x\%].
-  \item We provide a pip-installable Python package that allows practitioners to easily use our sparse hierarchical aggregated loss framework in large-scale settings.
+  \item We present a sparse hierarchical loss function that enables direct end-to-end training of hierarchical forecasts in large-scale settings.
+  \item We empirically demonstrate that a sparse hierarchical loss function can outperform existing hierarchical forecasting methods by up to 10\%.
+  \item We show how are sparse hierarchical loss function scales to large-scale settings and demonstrate a reduction of prediction time of up to 4x compared to existing hierarchical forecasting reconciliation methods.
+  \item [We present the results [and implementation details?] of an offline test of a forecasting system that forecasts millions of products daily at bol.com, a European e-commerce company.]]
 \end{enumerate}
 
 \section{Related work} \label{sec:relwork}
-% In this setting, there is a fixed hierarchical organization between time series, and one is interested in finding an optimal reconciliation between forecasts of different levels within the hierarchy. Such reconciliation steps are often performed as post-processing steps, i.e. a forecast is made for every time series and its hierarchical aggregations, and after training these forecasts are reconciled to satisfy the required hierarchical structure
 
 \paragraph{Forecasting for large-scale settings} Contemporary large-scale forecasting applications require forecasting many time series concurrently \cite{bose_probabilistic_2017}. In academia, there has been a surge in the use of neural network-based forecasting methods, which are methods that commonly learn a single forecast model that can produce forecasts for many time series. We refer the interested reader to the recent survey of \citet{benidis_deep_2023} for an overview of these methods. However, tree-based methods topped the M5 forecasting competition \cite{makridakis_m5_2022}, which is believed to be due to the strong implementations available of these algorithms \cite{januschowski_forecasting_2022}, such as the packages LightGBM \cite{ke_lightgbm_2017} or XGBoost \cite{chen_xgboost_2016}. Our own experience within bol.com confirms this view: the ease of use, execution speed and strong default performance are key reasons a tree-based method is often the default choice when creating a new forecast model.
 
-\paragraph{Hierarchical forecasting} Hierarchical forecasting \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019} and temporal hierarchical forecasting techniques \cite{taieb_sparse_2017,athanasopoulos_forecasting_2017,rangapuram_coherent_2023,theodosiou_forecasting_2021} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified (temporal) hierarchy of the underlying time series. We divide hierarchical forecasting methods into reconciliation methods and other methods.
+\paragraph{Hierarchical forecasting} Hierarchical forecasting \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019} and temporal hierarchical forecasting techniques \cite{taieb_sparse_2017,athanasopoulos_forecasting_2017,rangapuram_coherent_2023,theodosiou_forecasting_2021} aim to solve the problem of creating forecasts that are coherent with respect to a pre-specified (temporal) hierarchy of the underlying time series. We divide hierarchical forecasting methods into \textit{Reconciliation methods} and \textit{Other methods}.
 
-\subparagraph{Reconciliation methods} These methods solve the hierarchical forecasting problem as a post-processing step by reconciling the forecasts to a pre-specified (temporal) hierarchy \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019, panagiotelis_forecast_2021}. Limitations of these approaches are (i) that they require a post-processing step, (ii) computing the reconciliation may be computationally expensive, as we show in Section~\ref{sec:ourwork}, and (iii) approaches that are computationally less expensive tend to perform worse, as we show in Section~\ref{sec:experiments}. Recent work by \citet{taieb_sparse_2017, bentaieb_regularized_2019} has improved forecasting performance of previous reconciliation approaches but at the expense of even higher computational cost, as we explain in Section~\ref{sec:background}. \citet{zhang_optimal_2023} study the problem of reconciling hierarchical forecasts where some of the base forecasts are immutable, i.e. these are not allowed to be modified by the reconciliation method. However, this work also does not address the scalability issues we identify in Section~\ref{sec:ourwork}.
+\textit{Reconciliation methods} These methods solve the hierarchical forecasting problem as a post-processing step by reconciling the forecasts to a pre-specified (temporal) hierarchy \cite{hyndman_optimal_2011, hyndman_fast_2016, taieb_coherent_2017, bentaieb_regularized_2019, wickramasuriya_optimal_2019, panagiotelis_forecast_2021}. Limitations of these approaches are (i) that they require a post-processing step, (ii) computing the reconciliation may be computationally expensive, as we show in Section~\ref{subsec:ourwork}, and (iii) approaches that are computationally less expensive tend to perform worse, as we show in Section~\ref{sec:experiments}. Recent work by \citet{taieb_sparse_2017, bentaieb_regularized_2019} has improved forecasting performance of previous reconciliation approaches but at the expense of even higher computational cost, as we explain in Section~\ref{sec:background}. \citet{zhang_optimal_2023} study the problem of reconciling hierarchical forecasts where some of the base forecasts are immutable, i.e. these are not allowed to be modified by the reconciliation method. However, this work also does not address the scalability issues we identify in Section~\ref{subsec:ourwork}.
 
-\subparagraph{Other methods} In \cite{rangapuram_endtoend_2021,rangapuram_coherent_2023} neural network-based end-to-end hierarchical probabilistic forecasting method are proposed to solve the hierarchical forecasting problem. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts through regularization.
-
+\textit{Other methods} In \cite{rangapuram_endtoend_2021,rangapuram_coherent_2023} neural network-based end-to-end hierarchical probabilistic forecasting method are proposed to solve the hierarchical forecasting problem. More recently and most closely related to our work, \citet{han_simultaneously_2021} introduced SHARQ, a method that reconciles probabilistic hierarchical forecasts during training by employing a regularized loss function that enforces hierarchical consistency of bottom-up forecasts through regularization.
 
 \section{Background} \label{sec:background}
 Suppose we have a time series \(\vec{y}_t\), where \(t\) denotes the time stamp. We are interested in estimating future values \(\hat{y}_{t}\) of the time series by employing a model \(f\) based on past values \(y_{t-1}, \dots, y_{t-T}\) of the time series and additional attributes \(X\):
@@ -180,7 +165,8 @@ in which \(S\) is partitioned as \(S^T = [C^T \; I_n]\), \(J = [0_{n \times m^*}
 
 \paragraph{Other methods} \textit{Hier-E2E} \cite{rangapuram_endtoend_2021} solves the problem of Equation~\eqref{eq:hfp} by learning a neural network model that combines the forecasting and reconciliation step in a single model, resulting in an end-to-end solution removing the need for a post-processing step. Similarly, \textit{COPDeepVAR} \cite{rangapuram_coherent_2023} is an end-to-end neural network method that enforces temporal hierarchies, however this is a univariate method that is not able to enforce structural hierarchies (i.e. cross-sectional hierarchies) simultaneously, and therefore not suited to our task. \textit{SHARQ} \cite{han_simultaneously_2021} also moves the reconciliation step into the training phase and achieves reconciliation using a regularized loss function, where the regularization enforces the coherency. However, this method does not enforce absolute coherency to the hierarchy.
 
-\section{Hierarchical Forecasting in Large-scale Settings}   \label{sec:ourwork}
+\subsection{Scaling issues of hierarchical forecasting methods} \label{subsec:ourwork}
+
 Our main motivations of this paper are the limitations of prior work for problem settings with many time series.
 
 \paragraph{Scaling issues with reconciliation methods} \label{sec:scalingissuesreconmethods}
@@ -193,14 +179,14 @@ In reconciliation methods, we see the following issues when scaling to many time
 
 \paragraph{Scaling issues with other methods} \label{sec:scalingissuesneuralmethods} \textit{Hier-E2E} \cite{rangapuram_endtoend_2021} is a multivariate method, which means both input and output of the neural network scale with the number of time series. For neural networks, this significantly adds to the training cost and parameter cost as a large amount of parameters are required to handle all the separate time series. This in turn requires GPUs with more memory to train these models, which increases cost to operate them. 
 
-\section{Sparse Hierarchical Loss}
-We now present our main technical contribution. To find the best forecasts for the hierarchical forecasting problem \eqref{eq:hfp}, we will optimize the following loss function:
+\section{Sparse Hierarchical Loss} \label{sec:sparsehloss}
+We now present our main technical contribution. To find the best forecasts for the hierarchical forecasting problem \eqref{eq:hfp}, we try to find a model \(f(\cdot)\) by gradient-based optimization of the following loss function:
 \begin{align} \label{eq:whloss}
   L &= \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right] \; ,
 \end{align}
 in which \(l\) denotes the number of levels in the hierarchy and \(ij\) are the (row, column) indices of the elements of the \(S\)-matrix. Note that \eqref{eq:whloss} resembles the \textit{Weighted Root Mean Squared Error} from the M5 competition \cite{makridakis_m5_2022}.
 
-We are interested in finding bottom-level forecasts that can be aggregated according to a pre-specified hierarchy \(S\), thus \(P = [0_{n \times m^*} \; I_n] \) in ~\ref{eq:hfp} and:
+We are interested in finding bottom-level forecasts that can be aggregated according to a pre-specified hierarchy \(S\), thus \(P = [0_{n \times m^*} \; I_n] \) in \eqref{eq:hfp} and:
 \begin{equation} \label{eq:hfpbu}
   \tilde{\textbf{y}}_{t} = S \hat{\textbf{y}}^n_{t} \;,
 \end{equation}
@@ -304,18 +290,6 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
   
 \paragraph{Sparsity} \(S\) is highly sparse, as it has only \(nl\) non-zero elements: the number of bottom-level time series multiplied by the number of aggregations in the hierarchy. Hence, the overall sparsity of \(S\) is given by \( 1 - \frac{nl}{mn} \). For example, for the M5 dataset \cite{makridakis_m5_2021}, \(n = 3,049\), \(l = 12\), \(m=42,840\), corresponding to a sparsity of 99.97\%. This motivates the use of sparse linear algebra when computing Equations~\eqref{eq:whloss}-\eqref{eq:hfpbu_hess}.
 
-% it can be rewritten as:
-% \begin{align}
-%   S &= \left[I_n \; | \; S^a_{(m^*-1) \times n} \; | \; I_{n \times n}\right]^\intercal \; ,
-% \end{align}
-% with \(I_n\) denoting the identity vector corresponding to the top level aggregation, \(S^a\) the matrix containing the lower level aggregation components of the \(S\) matrix, which contains \(l - 2\) aggregations of size \(n\) each, and \(I_{n \times n}\) denoting the identity matrix corresponding to the bottom-level. Hence, the overall sparsity ratio of \(S\) - the size of the array divided by the number of non-zero elements - is \( \frac{n + n(l - 2) + n}{mn} = \frac{nl}{mn}\). For example, for the M5 dataset \cite{makridakis_m5_2022}, \(n = 3,049\), \(l = 12\), \(m=42,840\), corresponding to a sparsity of 99.97\%.
-% \begin{align}
-%   s &= \frac{n + nl + n}{mn} \\
-%     &= \frac{n(2 + l)}{mn} \\
-%     &= \frac{(2 + l)}{m}
-% \end{align}
-% - the size of the array divided by the number of non-zero elements - 
-
 \paragraph{Implementation} We implement the hierachical loss \eqref{eq:whloss}, the bottom-level gradient \eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess} in Python using the sparse library from \textit{SciPy} \cite{virtanen_scipy_2020}. Our implementation, including the code to reproduce the experiments from Section~\ref{sec:experiments}, is available on GitHub.\footnote{https://github.com/elephaint/hfas}
 
 \section{Experiments}
@@ -329,73 +303,35 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
 
   \paragraph{Experimental setup} To test our hierarchical sparse loss function against baseline forecasting systems, we consider the following scenarios:
   \begin{enumerate}
-    \item \textbf{Bottom-up} We train a single global model on only the bottom-level timeseries.
-    \item \textbf{Separate aggregations} We train separate models for every aggregation in the hierarchy, resulting in 12 models for the entire M5 dataset.
-    \item \textbf{Global} We train a single global model on all timeseries in the dataset, including all the aggregations.
+    \item \texttt{Bottom-up}. We train a single global model on only the bottom-level timeseries.
+    \item \texttt{Separate aggregations}. We train separate models for every aggregation in the hierarchy, resulting in 12 models for the entire M5 dataset.
+    \item \texttt{Global}. We train a single global model on all timeseries in the dataset, including all the aggregations.
   \end{enumerate}
-  For the first scenario in our experiments (\textit{Bottom-up}), we vary both the \textit{objective} (i.e. loss function that is optimized by LightGBM) and the \textit{evaluation metric} (i.e. the loss function that governs early-stopping during hyperparameter optimization). For the \textit{objective}, we consider the \textit{squared error loss} (SL), the \textit{Tweedie loss} (TL) and our sparse Hierarchical Loss (HL). The Tweedie loss is a loss function that assumes that the timeseries follow a distribution somewhere in between a Poisson and a Gamma distribution, which is useful in zero-inflated settings such as retail demand forecasting. It is a loss function that was favored by contestants in the M5 forecasting competition \cite{januschowski_forecasting_2022}, and it is the loss also used in the primary forecasting system of our e-commerce partner.
+  For the first scenario in our experiments (\texttt{Bottom-up}), we vary both the \textit{objective} (i.e. loss function that is optimized by LightGBM) and the \textit{evaluation metric} (i.e. the loss function that governs early-stopping during hyperparameter optimization). For the \textit{objective}, we consider the \textit{squared error loss} (SL), the \textit{Tweedie loss} (TL) and our \textit{sparse Hierarchical Loss} (HL). The Tweedie loss is a loss function that assumes that the timeseries follow a distribution somewhere in between a Poisson and a Gamma distribution, which is useful in zero-inflated settings such as retail demand forecasting. It is a loss function that was favored by contestants in the M5 forecasting competition \cite{januschowski_forecasting_2022}, and it is the loss also used in the primary forecasting system of our e-commerce partner.
 
-  For the latter two settings, we will obtain non-coherent forecasts. Thus, these methods require a reconciliation post-processing step to reconcile the forecasts to the hierarchy. We employ the following reconciliation methods:
+  For the latter two scenarios, we will obtain non-coherent forecasts. Thus, these methods require a reconciliation post-processing step to reconcile the forecasts to the hierarchy. We employ the following reconciliation methods:
   \begin{itemize}
-    \item \textbf{Base} No reconciliation is performed.
-    \item \textbf{OLS} Ordinary Least Squares (OLS) \cite{hyndman_optimal_2011}, where \(W\) in Equation~\eqref{eq:minp} is the identity matrix.
-    \item \textbf{WLS-struct} and \textbf{WLS-var} Weighted Least Squares (WLS) \cite{wickramasuriya_optimal_2019}, where \(W\) in Equation~\eqref{eq:minp} is a diagonal matrix containing respectively the sum of the rows of \(S\) (\textit{WLS-struct}) or the in-sample forecast errors (\textit{WLS-var}).
+    \item \textbf{Base}. No reconciliation is performed.
+    \item \textbf{OLS}. Ordinary Least Squares (OLS) \cite{hyndman_optimal_2011}, where \(W\) in Equation~\eqref{eq:minp} is the identity matrix.
+    \item \textbf{WLS-struct}. and \textbf{WLS-var}. Weighted Least Squares (WLS) \cite{wickramasuriya_optimal_2019}, where \(W\) in Equation~\eqref{eq:minp} is a diagonal matrix containing respectively the sum of the rows of \(S\) (\textit{WLS-struct}) or the in-sample forecast errors (\textit{WLS-var}).
     \item \textbf{MinT-shrink}. \textit{Trace Minimization} \cite{wickramasuriya_optimal_2019}, where \(W\) in Equation~\eqref{eq:minp} is the shrunk covariance matrix of in-sample forecast errors. We also experimented with using the non-shrunk covariance matrix of the in-sample forecast errors (\textit{MinT-cov}), but this produced erroneous/high variance results, which we attribute to precisely the motivation to shrink the covariance matrix in \textit{MinT-shrink}: to reduce the variance when the amount of time series considered becomes very large.
-    \item \textbf{ERM} The Empirical Risk Minimization (ERM) method \cite{bentaieb_regularized_2019}. Due to computational issues explained in Section~\ref{sec:scalingissuesreconmethods}, we were not able to apply the regularized ERM variants to our experiments, but only the unregularized variant.
+    \item \textbf{ERM}. The \textit{Empirical Risk Minimization} (ERM) method \cite{bentaieb_regularized_2019}. Due to computational issues explained in Section~\ref{sec:scalingissuesreconmethods}, we were not able to apply the regularized ERM variants to our experiments, but only the unregularized variant.
   \end{itemize}
   
-  We optimize the hyperparameters of each of the LightGBM models by Bayesian hyperparameter optimization using Optuna \cite{akiba_optuna_2019}. The settings for the hyperparameter optimization can be found in \ref{app:hyperparam}. Each model is trained for 8 different random seeds, and our results are based on the mean and standard deviation of those 8 rollouts. 
+  We optimize the hyperparameters of each of the LightGBM models by Bayesian hyperparameter optimization using Optuna \cite{akiba_optuna_2019}. The settings for the hyperparameter optimization can be found in \ref{app:hyperparam}. Each model is trained for 10 different random seeds, and our results are based on the mean and standard deviation of those 10 rollouts.
 
-  \paragraph{Evaluation} We evaluate our results for every aggregation in the hierarchy using the Root Mean Squared Error (RMSE) \cite{hyndman_forecasting_2021}. We present the RMSE relative to the \textit{Bottom-up} scenario using the squared-loss objective with the squared-loss metric. For absolute values and standard deviation of the results, see \ref{app:experiments}.
+  \paragraph{Evaluation} We evaluate our results for every aggregation in the hierarchy using the Root Mean Squared Error (RMSE) \cite{hyndman_forecasting_2021}. We present the RMSE relative to the \texttt{Bottom-up} scenario using the squared-loss objective with the squared-loss metric. For absolute values and standard deviation of the results, see \ref{app:experiments}.
 
-  % \paragraph{Results - single store} We first run our experiment only on a single store of the M5 dataset to establish that our method works correctly. We present the results in Table~\ref{tab:singlestore_rel}. The best method is the \textit{bottom-up} method that uses the \textit{Tweedie Loss} in combination with our hierarchical loss as metric. However, differences are small and compared to the baseline, the result is not significantly better. We also conclude that our hierachical loss works, but not as good as the baseline method and some of its variants. Finally, we find that from the reconciliation methods, \textit{MinT-shrink} and \textit{WLS-var} perform best when reconciling forecasts from multiple models, whereas \textit{MinT-Cov} performs best when reconciling forecasts from a single, global model.
-
-  % \begin{table*}[t]
-  %   \caption{Forecasting results for a single store on the M5 dataset. We report relative RMSE as compared to the baseline (shown in italic). Bold indicates best method for the aggregation. For absolute values and standard deviation of the results, see \ref{app:experiments}.}
-  %   \label{tab:singlestore_rel}
-  %   \begin{center}
-  %   \begin{tabular}{l c  cccccc}
-  %   \toprule 
-  %    & &  &\multicolumn{4}{ c }{Aggregation level}   &  \\
-  %    \cmidrule(r){4-7}
-  %   Scenario/Objective & Metric  & Reconciliation & Product & Department & Category & Total & All series \\
-  %   \midrule									
-  %   \texttt{Bottom-up}									\\
-  %   \hspace{0.1cm} 	\textit{SL}	&\textit{SL}	&\textit{None}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	\\
-  %   \hspace{0.1cm} 	SL	&HL	&None	&1.00	&1.03	&1.05	&1.07	&1.05	\\
-  %   \hspace{0.1cm} 	HL	&HL	&None	&1.00	&1.04	&1.06	&1.07	&1.05	\\
-  %   \hspace{0.1cm} 	HL	&SL	&None	&1.00	&1.03	&1.05	&1.02	&1.03	\\
-  %   \hspace{0.1cm} 	TL	&HL	&None	&\textbf{1.00}	&\textbf{0.99}	&\textbf{0.99}	&\textbf{0.99}	&\textbf{0.99}	\\
-  %   \hspace{0.1cm} 	TL	&SL	&None	&\textbf{1.00}	&1.05	&1.06	&1.09	&1.06	\\
-  %   \hspace{0.1cm} 	TL	&TL	&None	&1.03	&1.64	&1.72	&1.73	&1.66	\\
-  %   \midrule									
-  %   \texttt{Sep. agg.}									\\
-  %   \hspace{0.1cm} 	SL	&SL	&Base	&1.00	&1.20	&1.31	&1.46	&1.33	\\
-  %   \hspace{0.1cm} 	SL	&SL	&OLS	&1.00	&1.27	&1.37	&1.32	&1.30	\\
-  %   \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.00	&1.11	&1.16	&1.10	&1.11	\\
-  %   \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.00	&1.03	&1.05	&1.00	&1.02	\\
-  %   \hspace{0.1cm} 	SL	&SL	&MinT-cov	&1.01	&1.13	&1.21	&1.17	&1.16	\\
-  %   \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.00	&1.03	&1.05	&1.01	&1.02	\\
-  %   \hspace{0.1cm} 	SL	&SL	&ERM	&2.40	&2.36	&2.34	&2.04	&2.24	\\
-  %   \midrule									
-  %   \texttt{Global}									\\
-  %   \hspace{0.1cm} 	SL	&SL	&Base	&1.02	&1.40	&1.60	&1.53	&1.49	\\
-  %   \hspace{0.1cm} 	SL	&SL	&OLS	&1.02	&1.45	&1.54	&1.44	&1.45	\\
-  %   \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.02	&1.23	&1.30	&1.25	&1.25	\\
-  %   \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.02	&1.06	&1.09	&1.07	&1.07	\\
-  %   \hspace{0.1cm} 	SL	&SL	&MinT-cov	&1.02	&1.03	&1.02	&1.02	&1.02	\\
-  %   \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.02	&1.06	&1.09	&1.07	&1.07	\\
-  %   \hspace{0.1cm} 	SL	&SL	&ERM	&1.86	&1.61	&1.49	&1.41	&1.52	\\
-    
-  %   \bottomrule
-  %   \end{tabular}
-  %   \end{center}
-  %   \end{table*}
-
-  \paragraph{Results - all stores} We present our results in Table~\ref{tab:allstores_rel}. The best method is the \textit{bottom-up} method that uses our sparse hierarchical loss as objective, improving around 10\% as compared to the baseline using the squared error loss. Next, we find that reconciled separate models for every aggregation do not perform as well as the bottom-up scenario or the global scenario, as we find performance reductions of several percentage points up to 40-50\% for some of the aggregations in the hierarchy. Finally, we find that from the reconciliation methods, \textit{MinT-shrink} and \textit{WLS-var} perform best in the global scenario, although the performance delta across aggregations is still 5-10\% as compared to our method.
+  \paragraph{Results} We present our results in Table~\ref{tab:allstores_rel} and conclude the following:
+  \begin{itemize}
+    \item The best method is the \texttt{Bottom-up}-scenario combined with our sparse hierarchical loss as objective, outperforming the baseline by 0-10\% across aggregations. However, we note that for all but one aggregation, there is at least one other method that performs as well or better than our method, which we attribute to the relatively high variance of the performance of our method (see Table~\ref{tab:allstores_abs} in \ref{app:experiments}). We will further investigate this later on. 
+    \item The \texttt{Separate aggregations}-scenario does not perform as well as the \texttt{Bottom-up}-scenario or the \texttt{Global}-scenario, as we find performance reductions of several percentage points up to 40-50\% for some of the aggregations in the hierarchy. 
+    \item From the reconciliation methods, \textit{MinT-shrink} and \textit{WLS-var} perform best in the \texttt{Global}-scenario, although the performance delta across aggregations is still $\pm$5\% as compared to the best (our) method.
+  \end{itemize}
+  It is often said that higher-level forecasts may improve bottom-level forecasts [CITE], however in this experiment on the M5 dataset we could not confirm this. On the contrary, it seems better to learn only a bottom-level model, which also simplifies the forecasting pipeline.
 
   \begin{sidewaystable*}[t]
-    \caption{Forecasting results for all stores on the M5 dataset. We report relative RMSE as compared to the baseline (shown in italic). Bold indicates best method for the aggregation, taking into account standard deviation of the results across the 8 seeds. For absolute values and standard deviation of the results, see \ref{app:experiments}.}
+    \caption{Forecasting results for all stores on the M5 dataset. We report relative RMSE as compared to the baseline (shown in italic). Lower is better, and bold indicates best method for the aggregation, taking into account standard deviation of the best method across the 10 seeds. For absolute values and standard deviation of the results, see \ref{app:experiments}.}
     \label{tab:allstores_rel}
     \begin{center}
     {\small\setlength{\tabcolsep}{2pt} 
@@ -406,94 +342,161 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
     Scenario/Objective & Metric  & Reconciliation &Product	&Department	&Category &Department	&Category	&Total &Store	&State &Department &Category &Total	&Total	&All series \\
     \midrule																	
     \texttt{Bottom-up}																	\\
-    \hspace{0.1cm} 	\textit{SL}	&\textit{SL}	&\textit{None}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	\\
-    \hspace{0.1cm} 	SL	&HL (ours) 	&None	&1.00	&0.96	&0.96	&0.97	&0.96	&0.97	&1.00	&1.00	&0.97	&0.96	&0.97	&0.96	&0.97	\\
-    \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&\textbf{1.00}	&\textbf{0.88}	&\textbf{0.86}	&0.94	&0.92	&0.93	&0.98	&0.99	&0.90	&0.89	&0.90	&\textbf{0.88}	&\textbf{0.89}	\\
-    \hspace{0.1cm} 	HL (ours)	&SL	&None	&\textbf{0.99}	&\textbf{0.86}	&\textbf{0.84}	&\textbf{0.92}	&\textbf{0.91}	&\textbf{0.92}	&\textbf{0.98}	&\textbf{0.99}	&\textbf{0.89}	&\textbf{0.87}	&\textbf{0.89}	&\textbf{0.86}	&\textbf{0.88}	\\
-    \hspace{0.1cm} 	TL	&HL (ours)	&None	&1.00	&0.98	&0.99	&1.00	&1.00	&1.00	&1.00	&1.00	&0.98	&0.99	&1.01	&1.02	&1.00	\\
-    \hspace{0.1cm} 	TL	&SL	&None	&1.00	&0.97	&0.96	&1.02	&1.02	&1.02	&1.01	&1.01	&1.00	&1.00	&1.00	&0.97	&0.99	\\
-    \hspace{0.1cm} 	TL	&TL	&None	&1.06	&1.73	&1.72	&1.34	&1.36	&1.35	&1.27	&1.13	&1.48	&1.48	&1.46	&1.68	&1.57	\\
+    \hspace{0.1cm} 	\textit{SL}	&\textit{SL}	&\textit{None}	&\textbf{\textit{1.00}}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textbf{\textit{1.00}}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textbf{\textit{1.00}}	&\textit{1.00}	\\
+    \hspace{0.1cm} 	SL	&HL (ours)	&None	&\textbf{1.00}	&0.96	&\textbf{0.96}	&0.97	&0.96	&0.97	&1.00	&\textbf{1.00}	&0.97	&0.96	&\textbf{0.97}	&\textbf{0.97}	&\textbf{0.97}	\\
+    \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&\textbf{1.00}	&\textbf{0.89}	&\textbf{0.88}	&\textbf{0.92}	&\textbf{0.91}	&\textbf{0.94}	&\textbf{0.99}	&\textbf{1.00}	&\textbf{0.89}	&\textbf{0.88}	&\textbf{0.92}	&\textbf{0.94}	&\textbf{0.91}	\\
+    \hspace{0.1cm} 	HL (ours)	&SL	&None	&\textbf{1.00}	&\textbf{0.91}	&\textbf{0.90}	&0.96	&0.95	&0.98	&0.99	&1.00	&\textbf{0.92}	&\textbf{0.92}	&\textbf{0.95}	&\textbf{0.94}	&\textbf{0.93}	\\
+    \hspace{0.1cm} 	TL	&HL (ours)	&None	&\textbf{1.00}	&0.97	&0.99	&1.00	&1.00 &1.00	&1.00	&1.00	&0.98	&0.99	&1.01	&\textbf{1.02}	&1.00	\\
+    \hspace{0.1cm} 	TL	&SL	&None	&\textbf{1.00}	&0.97	&\textbf{0.96}	&1.02	&1.02	&1.02	&1.01	&1.01	&1.00	&1.00	&\textbf{1.00}	&\textbf{0.97}	&\textbf{0.98}	\\
+    \hspace{0.1cm} 	TL	&TL	&None	&1.06	&1.72	&1.71	&1.34	&1.36	&1.35	&1.27	&1.13	&1.48	&1.48	&1.46	&1.68	&1.57	\\
     \midrule																	
-    \texttt{Sep. agg.}																\\
+    \multicolumn{2}{l}{\texttt{Separate aggregations}}																	\\
     \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.59	&1.38	&1.15	&1.15	&1.66	&1.17	&1.02	&1.35	&2.05	&1.28	&1.41	&1.48	\\
-    \hspace{0.1cm} 	SL	&SL	&OLS	&1.02	&1.56	&1.51	&1.29	&1.30	&1.27	&1.12	&1.05	&1.43	&1.45	&1.32	&1.31	&1.39	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.39	&1.39	&1.15	&1.16	&1.11	&1.07	&1.03	&1.27	&1.28	&1.23	&1.27	&1.28	\\
+    \hspace{0.1cm} 	SL	&SL	&OLS	&1.02	&1.55	&1.50	&1.29	&1.30	&1.27	&1.12	&1.05	&1.43	&1.44	&1.32	&1.31	&1.39	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.39	&1.38	&1.15	&1.16	&1.11	&1.07	&1.03	&1.27	&1.28	&1.24	&1.27	&1.28	\\
     \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&1.27	&1.26	&1.09	&1.10	&1.07	&1.06	&1.03	&1.17	&1.17	&1.14	&1.21	&1.18	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&1.33	&1.31	&1.08	&1.08	&1.03	&1.06	&1.03	&1.19	&1.18	&1.13	&1.23	&1.20	\\
-    \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.56	&1.56	&1.43	&1.33	&1.34	&2.00	&1.85	&1.43	&1.40	&1.46	&1.68	&1.53	\\
+    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&1.33	&1.31	&1.09	&1.08	&1.03	&1.06	&1.03	&1.19	&1.18	&1.13	&1.22	&1.20	\\
+    \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.55	&1.56	&1.43	&1.33	&1.34	&2.00	&1.85	&1.43	&1.40	&1.46	&1.68	&1.53	\\
     \midrule																	
     \texttt{Global}																	\\
-    \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.24	&1.32	&\textbf{0.92}	&0.93	&0.95	&1.00	&1.01	&0.99	&1.05	&1.20	&1.75	&1.32	\\
-    \hspace{0.1cm} 	SL	&SL	&OLS	&1.01	&1.23	&1.26	&1.04	&1.03	&1.07	&1.01	&1.01	&1.12	&1.13	&1.20	&1.35	&1.22	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.01	&1.02	&0.95	&0.93	&0.93	&1.01	&1.01	&0.97	&0.97	&0.99	&1.05	&1.00	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&0.97	&0.97	&0.95	&0.94	&0.93	&1.02	&1.01	&0.96	&0.95	&0.96	&0.98	&0.97	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&0.99	&1.00	&\textbf{0.91}	&0.90	&0.89	&1.01	&1.01	&0.95	&0.95	&0.96	&1.01	&0.97	\\
-    \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.26	&1.30	&1.34	&1.26	&1.24	&2.04	&1.87	&1.29	&1.25	&1.26	&1.32	&1.30	\\
-    
-    
+    \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.23	&1.32	&\textbf{0.92}	&0.93	&0.96	&1.00	&1.01	&0.99	&1.05	&1.19	&1.73	&1.31	\\
+    \hspace{0.1cm} 	SL	&SL	&OLS	&1.01	&1.22	&1.25	&1.04	&1.03	&1.07	&1.01	&1.01	&1.12	&1.13	&1.20	&1.34	&1.21	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.00	&1.02	&0.95	&0.94	&0.93	&1.01	&1.01	&0.97	&0.97	&0.99	&\textbf{1.05}	&1.00	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&0.97	&0.97	&0.95	&0.94	&0.93	&1.02	&1.02	&0.96	&0.95	&\textbf{0.96}	&\textbf{0.98}	&\textbf{0.96}	\\
+    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&0.99	&1.00	&\textbf{0.92} &\textbf{0.90}	&\textbf{0.89}	&1.01	&1.01	&0.95	&0.95	&\textbf{0.96}	&\textbf{1.01}	&\textbf{0.97}	\\
+    \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.27	&1.30	&1.34	&1.26	&1.24	&2.03	&1.86	&1.30	&1.26	&1.26	&1.31	&1.30	\\    
+    \midrule
+    \midrule
+    \multicolumn{4}{l}{\texttt{Bottom-up}: \textit{impact of hierarchy}}																	\\
+    \hspace{0.1cm} 	RHL (ours)	&HL (ours)	&None	&\textbf{1.00}	&0.99	&\textbf{0.99}	&0.99	&0.99	&\textbf{0.99}	&1.00	&1.00	&0.98	&0.99	&\textbf{0.99}	&\textbf{1.00}	&\textbf{0.99}	\\
     \bottomrule
     \end{tabular}}
     \end{center}
     \end{sidewaystable*}
 
-  \paragraph{Analysis: time complexity} We investigate the computational time complexity required to perform training and prediction for each scenario and present the results in Table~\ref{tab:complexity}. The training and prediction time complexity is indicated by how respectively the training time and prediction time scales with respect to the default LightGBM training and prediction time complexity. First, we note that adding our hierarchical loss objective adds a time complexity that predominantly scales with \(n^3\), as we need to compute \eqref{eq:hfp_grad}. However, our sparse implementation of the hierarchical loss reduces the complexity from \(n^3\) to \(n^2l\), effectively reducing the scaling from cubic to quadratic in the number of bottom-level timeseries, as \(l\) is generally small. In the reconciliation scenarios, we always need to compute a matrix inversion to solve \eqref{eq:p1} that scales cubically with the number of aggregations \(m^*\) or with the total number of timeseries \(m\). The first is not problematic as generally \(m^* \ll n\) in large-scale settings, but methods with this time complexity consequently trade in performance as we observed in Table~\ref{tab:allstores_rel}. To empirically verify the time complexity, we recorded the training and prediction time for each scenario. [CONCLUSION]
+  \paragraph{Analysis: impact of hierarchy} We investigate the impact of the choice of hierarchy. In hierarchical forecasting problems, the aggregation matrix \(S\) is commonly fixed a priori and considered constant during training and prediction. As we are performing the reconciliation in an end-to-end fashion during training, we can modify \(S\) at every iteration. This allows us to understand the robustness of our solution to possible misspecification of the hierarchy \(S\), and more generally, to what extent the choice of the hierarchy has an effect on forecasting performance. We perform an experiment by randomly sampling an \(S\)-matrix at every iteration of the LightGBM training process. At every iteration, we sample uniformly at random (i) a number of levels for the hierarchy and (ii) a number of maximum categories for the level and construct a random \(S\)-matrix to be used in the gradient \eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess}. We validate and test on the `true' \(S\)-matrix. We present the results in Table~\ref{tab:allstores_rel}, under the scenario \texttt{Bottom-up}: \textit{impact of hierarchy}, where we refer to the \textit{Randomized Hierarchical Loss} as \textit{RHL}. We find that performance deteriorates to the level of the baseline, however we also find that our results in this experiment show higher variance compared to the baseline methods (see Table~\ref{tab:allstores_abs} in \ref{app:experiments}). 
+
+  \paragraph{Analysis: variance} We found a relatively high variance of our forecasting results across the 10 roll outs, as displayed in Figure~\ref{fig:rmse_allseries}, where we show the average RMSE of all timeseries for a selected set of methods from Table~\ref{tab:allstores_rel}. Performance variation between roll outs is due to using different random seeds for each roll out. Different random seeds in our experimental setting can cause performance variation due to two possible reasons: we subsample from (i) the training samples (`bagging') and (ii) the features (`feature subsampling') when building each new tree. We ran a small ablation experiment where we varied the hyperparameters governing these subsampling strategies, to understand which of these two is the primary source of performance variation. The results are displayed in Table~\ref{tab:samplingablation}. The base case refers to the optimal parameters found by our hyperparameter optimization strategy. When we do not perform feature subsampling, we find overall RMSE improves and variance reduces by approximately 40\%. However, if we only slightly increase feature subsampling, performance degrades as compared to the base case. We conclude that the Bayesian hyperparameter optimization strategy did not find the best hyperparameters \textit{across all random seeds}. This could somewhat have been expected, as we ran the hyperparameter optimization only for a single seed to reduce computational effort. Hence, when using our HL it may be advised to (i) use a relatively high feature fraction when building trees and/or (ii) perform hyperparameter optimization for every seed, to ensure best performance is achieved.
+  
+  % From a theoretical point of view, this can somewhat be expected: at each iteration, we are `smoothing' or `distorting' our gradient with error components from (random) aggregations (ref. Section~\ref{sec:sparsehloss}). It appears that this makes the method a bit more sensitive to initialization
+
+  \begin{figure}[t]
+    \centering
+    \centerline{\includegraphics[width=\columnwidth]{assets/boxplot_rmse_allseries.png}}
+    \caption{RMSE for all timeseries of the M5 dataset for a selected set of methods.}
+    \label{fig:rmse_allseries}
+  \end{figure}
+
+  \begin{table}[t]
+    \caption{Ablation experiment demonstrating the effect of sample subsampling and feature subsampling during tree-building on RMSE of all timeseries in the M5 dataset, in the \texttt{Bottom-up}-scenario. The base case refers to the optimal hyperparameters found by Optuna. For RMSE, lower is better, and bold indicates best method, with standard deviation in brackets.}
+    \label{tab:samplingablation}
+    \begin{center}
+    {\small\setlength{\tabcolsep}{1pt} 
+    \begin{tabular}{l c ccc}
+    \toprule 
+     &\multicolumn{3}{ c }{Hyperparameters}  \\
+     \cmidrule(r){2-4}  
+    Objective / Metric &\texttt{feature\_frac} &\texttt{bagging\_frac} &\texttt{bagging\_freq} &RMSE \\
+    \toprule
+    HL / HL \\
+    \hspace{0.1cm} Base case &0.473 &0.999 &4 &20.9 (1.29) \\
+    \hspace{0.1cm} No feature subsampling &1.0 &0.999 &4 &\textbf{20.5 (0.56)} \\
+    \hspace{0.1cm} Mild feature subsampling &0.6 &0.999 &4 &21.5 (2.10) \\
+    \hspace{0.1cm} No sample subsampling &0.473 &1.0 &n.a. &20.7 (1.13)  \\
+    \midrule
+    HL / SL &0.500 &0.673 &2 &21.4 (1.30) \\
+    SL / HL &0.662 &0.987 &6 &22.2 (0.22) \\
+    SL / SL &0.586 &0.933 &4 &22.9 (0.24) \\
+  \bottomrule
+  \end{tabular}}
+  \end{center}
+  \end{table}
+
+  \paragraph{Analysis: time complexity} We investigate the computational time complexity required to perform training and prediction for each scenario and present the results in Table~\ref{tab:complexity}. The training and prediction time complexity is indicated by how respectively the training time and prediction time scales with respect to the default LightGBM training and prediction time complexity. First, we note that adding our hierarchical loss objective adds a component to the time complexity that scales with \(n^3\), as we need to compute \eqref{eq:hfp_grad}. However, our sparse implementation of the hierarchical loss reduces this component from \(n^3\) to \(n^2l\), effectively reducing the scaling from cubic to quadratic in the number of bottom-level timeseries, as \(l\) is generally small. In the reconciliation scenarios, we always need to compute a matrix inversion to solve \eqref{eq:p1} that scales cubically with the number of aggregations \(m^*\) or with the total number of timeseries \(m\). The first is not problematic as generally \(m^* \ll n\) in large-scale settings, but methods with this time complexity consequently trade in performance as we observed in Table~\ref{tab:allstores_rel}. To empirically verify the time complexity, we recorded the training and prediction time for each scenario. We show timings for training and prediction for a single store of the M5 dataset (4M training samples) and for entire M5 dataset (52M training samples), to provide an indication of scaling when the problem size increases by an order of magnitude. First, we note that using our sparse implementation of the HL reduces training time from respectively \(14.4x\) to \(1.3x\) for a single store and from \(8.5x\) to \(2.3x\) for all stores as compared to the baseline. Second, our sparse HL has a prediction time similar to the baseline (respectively 0.7x and 1.4x for making predictions for a single store or for all stores). Finally, we see that \textit{MinT-shrink} and \textit{ERM} require a similar training time when training for all stores, however the prediction time using our sparse HL is significantly lower. [As ML cost in production systems mainly consists of prediction costs, having a lower prediction time is beneficial[reference].] 
   \begin{table*}[t]
-    \caption{Computational complexity and observed relative timings for all scenarios. Timings are relative to the baseline (in italic). The complexity is indicated by how respectively the training time and prediction time scales with respect to the default LightGBM training time \(T_t\) or prediction time \(T_p\) based on the number of samples, where \(n\) denotes the number of bottom-level time series in the hierarchy, \(n_l\) the number of time series in each level in the hierarchy and \(l\) the number of levels in the hierarchy, \(m\) the total number of time series, and \(m^{*} = m - n\).}
+    \caption{Computational time complexity and observed relative timings for all scenarios. Timings are relative to the baseline (in italic). The complexity is indicated by how respectively the training time and prediction time scales with respect to the default LightGBM training/prediction time \(T\), where \(s\) denotes the number of samples per timeseries, \(n\) denotes the number of bottom-level time series in the hierarchy, \(n_l\) the number of time series in each level in the hierarchy and \(l\) the number of levels in the hierarchy, \(m\) the total number of time series, and \(m^{*} = m - n\).}
     \label{tab:complexity}
     \begin{center}
     {\small\setlength{\tabcolsep}{1pt} 
     \begin{tabular}{l c ccccccc}
     \toprule 
-     &&  &\multicolumn{2}{ c }{Complexity}   &\multicolumn{2}{ c }{Training time (s)} &\multicolumn{2}{ c }{Prediction time (s)}  \\
-     \cmidrule(r){4-5} \cmidrule(r){6-7} \cmidrule(r){8-9} 
-    Scen./Obj. & Metric  & Reconciliation &Training	&Prediction	&1 store &All stores &1 store &All stores \\
+     &  &\multicolumn{2}{ c }{Complexity}   &\multicolumn{2}{ c }{Training time (s)} &\multicolumn{2}{ c }{Prediction time (s)}  \\
+     \cmidrule(r){3-4} \cmidrule(r){5-6} \cmidrule(r){7-8} 
+    Scenario/Objective  & Reconciliation &Training	&Prediction	&1 store &All stores &1 store &All stores \\
     \midrule																	
     \texttt{Bottom-up}																	\\
-    \hspace{0.1cm} 	SL	&SL &None & $O(T_t(n))$	&$O(T_p(n) + n^2l)$	\\
-    \hspace{0.1cm} 	HL (dense)	&HL (dense) &None & $O(T_t(n + n^3))$	 &$O(T_p(n) + n^3)$ \\
-    \hspace{0.1cm} 	HL (sparse)	&HL (sparse) &None & $O(T_t(n + n^2l))$	 &$O(T_p(n) + n^2l)$ \\
+    \hspace{0.1cm} 	SL (dense)	&None & $O(T(s_nn))$	&$O(T(s_nn) + s_nn^3)$ &\textit{1.0}	&\textit{1.0}	&\textit{1.0}	&\textit{1.0}    \\
+    \hspace{0.1cm} 	SL (sparse)	&None & $O(T(s_nn))$	&$O(T(s_nn) + s_nn^2l)$ &1.0	&1.0	&1.0	&0.8    \\
+    \hspace{0.1cm} 	HL (dense)	&None & $O(T(s_nn + s_nn^3))$	 &$O(T(s_nn) + s_nn^3)$ &14.4	&8.5	&0.7	&1.7 \\
+    \hspace{0.1cm} 	HL (sparse)	&None & $O(T(s_nn + s_nn^2l))$	 &$O(T(s_nn) + s_nn^2l)$ &1.3	&2.3	&0.7	&1.4 \\
     \midrule																	
     \texttt{Sep. agg.}																	\\
-    \hspace{0.1cm} 	SL	&SL	&Base & $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l))$		\\
-    \hspace{0.1cm} 	SL	&SL	&OLS	& $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l) + m^{*3})$		\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	& $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l) + m^{*3})$	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-var	& $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l) + m^{*3})$	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink & $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l) + m^3)$	\\
-    \hspace{0.1cm} 	SL	&SL	&ERM & $O(l \cdot T_t(n_l))$	&$O(l \cdot T_p(n_l) + m^3)$ \\
+    \hspace{0.1cm} 	SL	&Base & $O(l \cdot T(s_ln_l))$	&$O(l \cdot T(s_ln_l))$	&1.2 &0.5	&0.3	&0.2    \\
+    \hspace{0.1cm} 	SL	&OLS	& $O(l \cdot T(s_ln_l))$	&$O(l \cdot T(s_ln_l) + m^{*3})$ &1.2	&0.5	&0.3	&0.8		\\
+    \hspace{0.1cm} 	SL	&WLS-struct	& $O(l \cdot T(s_ln_l))$	&$O(l \cdot T(s_ln_l) + m^{*3})$ &1.2	&0.5	&0.3	&0.8    \\
+    \hspace{0.1cm} 	SL	&WLS-var	& $O(l \cdot T(s_ln_l))$	&$O(l \cdot T_p(n_l) + m^{*3})$ &1.2	&0.5	&0.3	&0.8    \\
+    \hspace{0.1cm} 	SL	&MinT-shrink & $O(l \cdot T(s_ln_l))$	&$O(l \cdot T(s_ln_l) + m^3)$	&1.2	&0.5	&0.3	&6.0    \\
+    \hspace{0.1cm} 	SL	&ERM & $O(l \cdot T(n_l))$	&$O(l \cdot T(s_ln_l) + m^3)$ &1.2	&0.5	&0.4	&2.0    \\
     \midrule																	
     \texttt{Global}																	\\
-    \hspace{0.1cm} 	SL	&SL	&Base & $O(T_t(m))$	&$O(T_p(m))$		\\
-    \hspace{0.1cm} 	SL	&SL	&OLS	& $O(T_t(m))$	&$O(T_p(m) + m^{*3})$		\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	& $O(T_t(m))$	&$O(T_p(m) + m^{*3})$	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-var	& $O(T_t(m))$	&$O(T_p(m) + m^{*3})$	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink & $O(T_t(m))$	&$O(T_p(m) + m^3)$	\\
-    \hspace{0.1cm} 	SL	&SL	&ERM & $O(T_t(m))$	&$O(T_p(m) + m^3)$ \\
+    \hspace{0.1cm} 	SL	&Base & $O(T(s_mm))$	&$O(T(s_mm))$	&4.2	&2.0	&3.3	&1.8    \\
+    \hspace{0.1cm} 	SL	&OLS	& $O(T(s_mm))$	&$O(T(s_mm) + m^{*3})$	&4.2	&2.0	&3.3	&2.5    \\
+    \hspace{0.1cm} 	SL	&WLS-struct	& $O(T(s_mm))$	&$O(T(s_mm) + m^{*3})$	&4.2	&2.0	&3.3	&2.5    \\
+    \hspace{0.1cm} 	SL	&WLS-var	& $O(T(s_mm))$	&$O(T(s_mm) + m^{*3})$	&4.2	&2.0	&3.3	&2.5    \\
+    \hspace{0.1cm} 	SL	&MinT-shrink & $O(T(s_mm))$	&$O(T(s_mm) + m^3)$	&4.2	&2.0	&3.4	&7.8    \\
+    \hspace{0.1cm} 	SL	&ERM & $O(T(s_mm))$	&$O(T(s_mm) + m^3)$ &4.2	&2.0	&3.4	&4.1    \\
     \bottomrule
     \end{tabular}}
     \end{center}
     \end{table*}
-
-  \paragraph{Analysis: impact of hierarchy} We investigate the impact of the choice of hierarchy. In hierarchical forecasting problems, the aggregation matrix \(S\) is commonly fixed a priori and considered constant during training and prediction. As we are performing the reconciliation in an end-to-end fashion during training, we can modify \(S\) at every iteration. This allows us to understand the robustness of our solution to possible misspecification of the hierarchy \(S\), and more generally, to what extent the choice of the hierarchy has an effect on forecasting performance. We perform an experiment by randomly sampling an \(S\) matrix at every iteration of the LightGBM training process. At every iteration, we sample uniformly at random (i) a number of levels for the hierarchy and (ii) a number of maximum categories for the level and construct a random \(S\) matrix to be used in the gradient \eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess}. We validate and test on the 'true' \(S\) matrix. We present the results in Table~[ref], where we refer to the \textit{Randomized Hierarchical Loss} as \textit{RHL}.
-
-  \paragraph{Analysis: impact of temporal aggregations}
-
   
-  \subsection{Proprietary datasets}
-    \label{subsec:proprietarydatasets}
+  \subsection{Proprietary datasets} \label{subsec:proprietarydatasets}
+  At bol.com, a LightGBM-based forecasting model is used as the primary product forecasting model. The model is used to forecast weekly product demand for 12 weeks. Every day, 12 separate models are trained, each tasked to forecast demand for a single week for every product. The model is used to forecast the majority of the products on sale at any moment, which are approximately 5 million unique items. We investigate the use of our sparse hierarchical loss function as a drop-in replacement for the existing Tweedie loss that is used within the company. The offline dataset consists of 38M training samples from the period January 2017 to the end of June 2021. We test on samples from the period July 2021 to January 2022. The baseline model for every weekly forecast model is a LightGBM model with a \textit{Tweedie Loss} (TL). The baseline model uses 19 proprietary features. 
+  
+  \paragraph{Experimental setup} We replace the TL with our HL and investigate forecasting performance on the test set. For the HL, we use the proprietary aggregations \textit{category} and \textit{subcategory}, each containing respectively [x] and [y] unique values. Thus, we have \(n = [x]\) bottom-level timeseries and \(m^* = [y]\) aggregated timeseries across \(l = 4\) levels: \textit{product} (bottom-level), \textit{category}, \textit{subcategory} and \textit{total}.
 
-\section{Discussion}
-  \label{sec:discussion}
+  \paragraph{Results} We present the results in Table~\ref{tab:bolresults}. On average, we find our sparse HL underperforms the existing TL model by about 5\%. We further investigate the performance by investigating how the RMSE varies across the 12 forecasting horizons Figure~\ref{fig:bol_rmse}. [This confirms the previous results + further deepdive + learnings] 
 
+    \begin{table}[H]
+    \caption{Forecast performance by RMSE of our offline test on bol.com data. Lower is better, bold indicates best method with standard deviation in brackets.}
+    \label{tab:bolresults}
+    \begin{center}
+    \begin{tabular}{l c c}
+    \toprule 
+    &\multicolumn{2}{ c }{RMSE} \\
+    \cmidrule(r){2-3}  \\
+    Aggregation & TL & HL \\
+    \midrule
+    Product &2.0 () &2.1 () \\
+    Subcategory &40 () &44 () \\
+    Category &50 () &50 () \\
+    Total &400 () &400 () \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+  \end{table}
 
-\section{Conclusion}
-  \label{sec:conclusion}
+  \begin{figure}[t]
+    \centering
+    \centerline{\includegraphics[width=\columnwidth]{assets/bol_rmse.png}}
+    \caption{RMSE relative to the Tweedie baseline at product level for each forecasting horizon (week).}
+    \label{fig:bol_rmse}
+  \end{figure}
+
+\section{Conclusion} \label{sec:conclusion}
+  We introduced a sparse hierarchical loss function to perform hierarchical forecasting in large-scale settings. We demonstrated that we are able to outperform existing hierarchical forecasting methods both in terms of performance as measured by RMSE by up to 10\% as well as in terms of computational time required to perform the end-to-end hierarchical forecasting in large-scale settings, reducing prediction time as compared to the best hierarchical forecasting reconciliation method by a factor of 4. We empirically verified our sparse hierarchical loss in an offline test for bol.com, where we unfortunately could not verify the results from our offline test on public datasets. [additional learnings] 
+
+  In addition to our main contributions, one of our main learnings has been that we could not find a benefit of having multiple models for separate aggregations in the hierarchy, as the bottom-up scenario we employed consistently outperformed other scenarios. This is in contrast with [ref, ref].
+
+  For future work, we aim to extend our work to the setting of probabilistic forecasting by combining our sparse hierarchical loss with existing probabilistic forecasting frameworks from, e.g. \cite{sprangers_probabilistic_2021, hasson_probabilistic_2021, stankeviciute_conformal_2021}.
+
 
 \section*{Acknowledgments}
   This research was (partially) funded by the Hybrid Intelligence Center, a 10-year program funded by the Dutch Ministry of Education, Culture and Science through the Netherlands Organisation for Scientific Research.\footnote{\url{https://www.hybrid-intelligence-centre.nl/}}
 
   All content represents the opinion of the authors, which is not necessarily shared or endorsed by their respective employers and/or sponsors.
   
-  We thank the reviewers for their constructive feedback and help on improving our work. 
+  % We thank the reviewers for their constructive feedback and help on improving our work. 
 
 
 \bibliographystyle{elsarticle-num-names} 
@@ -504,10 +507,45 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
 \appendix
 
 \section{M5 Dataset} \label{app:m5dataset}
+For each of the scenarios of our experiments in Section~\ref{sec:experiments}, we construct a set of features for the LightGBM model as given in Table~\ref{tab:features}. To facilitate the most `fair' comparison across methods, each model has the same features, and for the timeseries aggregations in the hierarchy we construct the features taken over the aggregation. 
+\begin{table}
+  \caption{Features used for the M5 dataset in our experiments.}
+  \label{tab:features}
+  \begin{center}
+  {\small\setlength{\tabcolsep}{1pt} 
+  \begin{tabular}{l l }
+  \toprule 
+  Feature & Description \\
+  \midrule
+  \texttt{Aggregation} & Aggregation level in the hierarchy \\
+  \texttt{Value} & Identifier of timeseries of this aggregation \\   
+  \texttt{sales\_lag1-7} & Lagged sales (target) (7 features) \\
+  \texttt{sales\_lag28} & Sales 28 days ago \\ 
+  \texttt{sales\_lag56} & Sales 56 days ago \\ 
+  \texttt{sales\_lag364} & Sales last year \\ 
+  \texttt{sales\_lag1\_mavg7} & Moving average of sales last 7 days \\
+  \texttt{sales\_lag1\_mavg28} & Moving average of sales last 28 days \\ 
+  \texttt{sales\_lag1\_mavg56} & Moving average of sales last 56 days\\ 
+  \texttt{dayofweek} & Day of the week \\ 
+  \texttt{dayofmonth} & Day of the month \\
+  \texttt{weekofyear} & Week of year \\ 
+  \texttt{monthofyear} & Month of year \\ 
+  \texttt{sell\_price\_avg} & Sell price (average if aggregation)\\ 
+  \texttt{sell\_price\_change} & Day-to-day change in sell price\\
+  \texttt{weeks\_on\_sale\_avg} & Weeks on sale \\ 
+  \texttt{snap\_CA} & State indicator for California \\ 
+  \texttt{snap\_TX} & State indicator for Texas \\ 
+  \texttt{snap\_WI} & State indicator for Wyoming \\
+  \texttt{event\_type\_1\_enc} & Encoded events \\ 
+  \texttt{event\_type\_2\_enc} & Encoded events \\
+  \bottomrule
+  \end{tabular}}
+  \end{center}
+\end{table}
 
 \section{M5 model training \& optimization} \label{app:hyperparam}
 We optimize the hyperparameters of our LightGBM models using Optuna \cite{akiba_optuna_2019}, using the settings found in Table~\ref{tab:hyperparams}. The validation is performed on a rolling-forward basis for 3 validation sets, where we use two years of data to predict the next 28 days ahead. After the hyperparameter optimization procedure, we use the average number of iterations at which the lowest validation loss was achieved across the 3 validation sets as the number of estimators to use in our final model.
-\begin{table}[h!]
+\begin{table*}
   \caption{Key hyperparameters used in our experiments. The parameters with a search range included are optimized in a hyperparameter search.}
   \label{tab:hyperparams}
   \begin{center}
@@ -522,7 +560,8 @@ We optimize the hyperparameters of our LightGBM models using Optuna \cite{akiba_
   \texttt{n\_validation\_sets} & Number of validation sets & 3 & \\  
   \texttt{n\_days\_test} & Number of days in validation and test sets & 28 & \\
   \texttt{max\_levels\_random} & Max. number of levels when using a random hierarchy & 2 & \\  
-  \texttt{max\_categories\_per\_random\_level} & Max. categories per level in the random hierarchy & 1000 & \\  
+  \texttt{\shortstack{max\_categories\_per \\ \_random\_level}} & Max. categories per level in the random hierarchy & 1000 & \\  
+  \texttt{hier\_freq} & Frequency of performing the randomized hierarchical aggregation & 1 & \texttt{uniform($1$, $10$)}  \\  
   \texttt{lambda\_l1} & L1-regularization & 0 & \texttt{log\_uniform($10^{-8}$, $10^{1}$)} \\  
   \texttt{lambda\_l2} & L2-regularization & 0 & \texttt{log\_uniform($10^{-8}$, $10^{1}$)} \\  
   \texttt{num\_leaves} & Max. number of leaves per tree & 31 & \texttt{uniform($2^{3}$, $2^{10}$)} \\  
@@ -533,55 +572,14 @@ We optimize the hyperparameters of our LightGBM models using Optuna \cite{akiba_
   \bottomrule
   \end{tabular}}
   \end{center}
-\end{table}
+\end{table*}
 
 
 
 \section{Experiments} \label{app:experiments}
 
-% \begin{table*}[t]
-%   \caption{Forecasting results for a single store on the M5 dataset. We report RMSE scores with standard deviation in brackets. Bold indicates best method for the aggregation.}
-%   \label{tab:singlestore_abs}
-%   \begin{center}
-%   \begin{tabular}{l c  cccccc}
-%   \toprule 
-%    &    &  &\multicolumn{4}{ c }{Aggregation level}   &  \\
-%    \cmidrule(r){4-7}
-%   Scenario/Obj. & Metric  & Reconciliation & Product & Department & Category & Total & All series \\
-%   \midrule									
-%   \texttt{Bottom-up}									\\
-%   \hspace{0.1cm} 	SL	&SL	&None	&2.01 (0.00)	&74.81 (1.17)	&124.27 (2.27)	&263.94 (7.33)	&7.40 (0.15)	\\
-%   \hspace{0.1cm} 	SL	&HL (ours)	&None	&2.01 (0.00)	&77.27 (1.33)	&130.41 (2.78)	&281.41 (6.79)	&7.76 (0.15)	\\
-%   \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&2.01 (0.00)	&77.75 (2.35)	&131.83 (4.85)	&281.94 (15.26)	&7.80 (0.31)	\\
-%   \hspace{0.1cm} 	HL (ours)	&SL	&None	&2.01 (0.00)	&77.03 (2.32)	&129.87 (5.33)	&267.97 (14.67)	&7.59 (0.30)	\\
-%   \hspace{0.1cm} 	TL	&HL (ours)	&None	&\textbf{2.00 (0.00)}	&\textbf{74.06 (2.29)}	&\textbf{122.47 (5.02)}	&\textbf{262.30 (10.78)}	&\textbf{7.33 (0.26)}	\\
-%   \hspace{0.1cm} 	TL	&SL	&None	&\textbf{2.00 (0.00)}	&78.53 (1.98)	&131.48 (4.65)	&286.75 (12.54)	&7.87 (0.27)	\\
-%   \hspace{0.1cm} 	TL	&TL	&None	&2.07 (0.00)	&122.98 (1.85)	&213.13 (3.10)	&455.70 (8.94)	&12.30 (0.20)	\\
-%   \midrule				
-%   \texttt{Sep.~agg.}									\\					
-%   \hspace{0.1cm} 	SL	&SL	&Base	&2.01 (0.00)	&89.65 (1.78)	&162.52 (3.97)	&386.67 (21.94)	&9.86 (0.28)	\\
-%   \hspace{0.1cm} 	SL	&SL	&OLS	&2.01 (0.00)	&94.88 (1.84)	&169.86 (4.27)	&348.07 (13.68)	&9.62 (0.25)	\\
-%   \hspace{0.1cm} 	SL	&SL	&WLS-struct	&2.01 (0.00)	&83.31 (0.90)	&144.7 (1.78)	&289.46 (5.69)	&8.23 (0.10)	\\
-%   \hspace{0.1cm} 	SL	&SL	&WLS-var	&2.01 (0.00)	&77.21 (0.75)	&130.46 (1.76)	&264.99 (6.08)	&7.57 (0.11)	\\
-%   \hspace{0.1cm} 	SL	&SL	&MinT-cov	&2.02 (0.00)	&84.51 (3.90)	&150.38 (9.21)	&308.69 (27.17)	&8.59 (0.56)	\\
-%   \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&2.01 (0.00)	&77.16 (0.76)	&130.66 (1.92)	&265.27 (6.68)	&7.58 (0.12)	\\
-%   \hspace{0.1cm} 	SL	&SL	&ERM	&4.81 (0.16)	&176.56 (20)	&290.94 (42.84)	&539.3 (67.07)	&16.55 (1.62)	\\
-%   \midrule									
-%   \texttt{Global}									\\
-%   \hspace{0.1cm} 	SL	&SL	&Base	&2.04 (0.01)	&104.82 (4.49)	&198.45 (7.22)	&404.37 (22.42)	&11.02 (0.36)	\\
-%   \hspace{0.1cm} 	SL	&SL	&OLS	&2.05 (0.01)	&108.6 (3.47)	&191.75 (6.44)	&381.04 (17.67)	&10.71 (0.36)	\\
-%   \hspace{0.1cm} 	SL	&SL	&WLS-struct	&2.04 (0.01)	&92.11 (2.08)	&162.11 (3.36)	&330.51 (7.54)	&9.22 (0.18)	\\
-%   \hspace{0.1cm} 	SL	&SL	&WLS-var	&2.04 (0.01)	&79.23 (2.26)	&135.78 (4.23)	&282.67 (8.81)	&7.92 (0.22)	\\
-%   \hspace{0.1cm} 	SL	&SL	&MinT-cov	&2.05 (0.01)	&77.27 (3.32)	&127.32 (7.35)	&269.02 (16.04)	&7.58 (0.38)	\\
-%   \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&2.04 (0.01)	&78.93 (2.31)	&135.13 (4.36)	&281.22 (9.11)	&7.88 (0.23)	\\
-%   \hspace{0.1cm} 	SL	&SL	&ERM	&3.73 (0.08)	&120.31 (14.55)	&184.77 (30.82)	&371.55 (70.75)	&11.24 (1.49)	\\  
-%   \bottomrule
-%   \end{tabular}
-%   \end{center}
-%   \end{table*}
-
 \begin{sidewaystable*}[t]
-  \caption{Forecasting results for all stores on the M5 dataset. We report RMSE scores with standard deviation in brackets. Bold indicates best method for the aggregation.}
+  \caption{Forecasting results for all stores on the M5 dataset. We report mean RMSE scores across 10 random seeds with standard deviation in brackets. For the \texttt{Separate aggregations}-scenario, the results are based on 8 seeds, as 2 seeds produced erroneous results. Lower is better, and bold indicates best method for the aggregation, taking into account the standard deviation of the best method.}
   \label{tab:allstores_abs}
   \begin{center}
   {\small\setlength{\tabcolsep}{1pt} 
@@ -592,34 +590,37 @@ We optimize the hyperparameters of our LightGBM models using Optuna \cite{akiba_
   Scen./Obj. & Metric  & Reconciliation &Product	&Department	&Category &Department	&Category	&Total &Store	&State &Department &Category &Total	&Total	&All series \\
   \midrule																	
   \texttt{Bottom-up}																	\\
-  \hspace{0.1cm} 	SL	&SL	&None	&1.94 (0.00)	&567 (5.73)	&1113 (16.21)	&102 (0.59)	&197 (1.51)	&411 (2.94)	&6.67 (0.02)	&3.68 (0.01)	&256 (1.68)	&506 (4.69)	&1060 (10.13)	&2350 (38.31)	&22.9 (0.25)	\\
-  \hspace{0.1cm} 	SL	&HL (ours)	&None	&1.94 (0.00)	&546 (6.68)	&1072 (14.79)	&99 (1.02)	&190 (2.46)	&396 (4.48)	&6.65 (0.01)	&3.67 (0.01)	&247 (2.41)	&489 (5.63)	&1023 (8.82)	&2267 (26.71)	&22.1 (0.22)	\\
-  \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&\textbf{1.93 (0.00)}	&\textbf{499 (8.93)}	&\textbf{954 (20.89)}	&96 (0.69)	&182 (1.56)	&384 (3.34)	&6.55 (0.01)	&3.64 (0.00)	&231 (2.38)	&450 (5.47)	&954 (14.19)	&\textbf{2057 (58.27)}	&\textbf{20.4 (0.34)}	\\
-  \hspace{0.1cm} 	HL (ours)	&SL	&None	&\textbf{1.93 (0.00)}	&\textbf{489 (6.54)}	&\textbf{938 (16.10)}	&\textbf{94 (0.59)}	&\textbf{179 (1.39)}	&379 (3.11)	&\textbf{6.52 (0.01)}	&\textbf{3.63 (0.00)}	&\textbf{227 (1.68)}	&\textbf{442 (3.76)}	&\textbf{939 (9.84)}	&\textbf{2030 (43.95)}	&\textbf{20.1 (0.25)}	\\
-  \hspace{0.1cm} 	TL	&HL (ours)	&None	&1.94 (0.00)	&553 (8.84)	&1103 (21.09)	&102 (0.69)	&197 (1.59)	&412 (3.14)	&6.68 (0.02)	&3.68 (0.00)	&252 (2.22)	&503 (5.33)	&1068 (11.03)	&2408 (44.36)	&23.0 (0.31)	\\
-  \hspace{0.1cm} 	TL	&SL	&None	&1.95 (0.00)	&550 (35.9)	&1068 (90.93)	&104 (2.21)	&201 (5.67)	&418 (13.23)	&6.71 (0.03)	&3.70 (0.01)	&256 (8.82)	&506 (22.14)	&1060 (54.11)	&2283 (219.77)	&22.6 (1.4)	\\
-  \hspace{0.1cm} 	TL	&TL	&None	&2.05 (0.00)	&981 (7.26)	&1911 (16.73)	&137 (0.63)	&269 (1.50)	&553 (3.77)	&8.44 (0.02)	&4.14 (0.00)	&380 (2.34)	&749 (5.38)	&1548 (15.01)	&3945 (47.27)	&36.0 (0.32)	\\
+  \hspace{0.1cm} 	SL	&SL	&None	&\textbf{1.94 (0.00)}	&568 (6.49)	&1116 (17.69)	&102 (0.58)	&197 (1.36)	&410 (2.93)	&6.67 (0.02)	&\textbf{3.67 (0.01)}	&256 (1.62)	&507 (4.26)	&1058 (9.88)	&\textbf{2350 (38.81)}	&22.9 (0.24)	\\
+  \hspace{0.1cm} 	SL	&HL (ours)	&None	&\textbf{1.94 (0.00)}	&547 (6.70)	&\textbf{1076 (14.75)}	&99 (0.91)	&190 (2.19)	&396 (3.96)	&6.65 (0.01)	&3.67 (0.00)	&247 (2.14)	&489 (4.98)	&\textbf{1024 (8.29)}	&\textbf{2278 (32.61)}	&\textbf{22.2 (0.22)}	\\
+  \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&\textbf{1.94 (0.00)}	&\textbf{508 (28.48)}	&\textbf{985 (73.24)}	&\textbf{94 (1.64)}	&\textbf{179 (4.16)}	&\textbf{385 (13.21)}	&\textbf{6.58 (0.02)}	&\textbf{3.66 (0.01)}	&\textbf{229 (6.60)}	&\textbf{447 (16.94)}	&\textbf{974 (56.42)}	&\textbf{2203 (225.73)}	&\textbf{20.9 (1.29)}	\\
+  \hspace{0.1cm} 	HL (ours)	&SL	&None	&1.95 (0.00)	&\textbf{516 (30.74)}	&\textbf{1008 (75.53)}	&97 (1.43)	&187 (3.38)	&400 (11.84)	&6.63 (0.03)	&\textbf{3.67 (0.01)}	&\textbf{236 (6.34)}	&\textbf{465 (15.19)}	&\textbf{1002 (54.04)}	&\textbf{2215 (243.47)}	&\textbf{21.4 (1.30)}	\\
+  \hspace{0.1cm} 	TL	&HL (ours)	&None	&\textbf{1.94 (0.00)}	&553 (8.52)	&1102 (20.37)	&102 (0.64)	&197 (1.5)	&412 (3.46)	&6.68 (0.02)	&3.68 (0.00)	&252 (2.14)	&503 (5.2)	&1067 (13.51)	&\textbf{2407 (52.75)}	&22.9 (0.33)	\\
+  \hspace{0.1cm} 	TL	&SL	&None	&1.95 (0.00)	&550 (31.99)	&\textbf{1067 (81.29)}	&104 (1.99)	&201 (5.13)	&417 (12.07)	&6.72 (0.03)	&3.7 (0.01)	&256 (7.93)	&506 (19.93)	&\textbf{1056 (49.08)}	&\textbf{2271 (197.35)}	&\textbf{22.6 (1.26)}	\\
+  \hspace{0.1cm} 	TL	&TL	&None	&2.05 (0.00)	&979 (6.92)	&1908 (15.81)	&137 (0.61)	&269 (1.44)	&552 (3.5)	&8.44 (0.02)	&4.14 (0.01)	&379 (2.23)	&748 (5.07)	&1546 (13.72)	&3940 (43.2)	&36.0 (0.29)	\\
   \midrule																	
   \texttt{Sep. agg.}																	\\
-  \hspace{0.1cm} 	SL	&SL	&Base	&1.96 (0.00)	&904 (23.27)	&1537 (54.5)	&117 (1.88)	&227 (3.81)	&681 (2.53)	&7.8 (0.03)	&3.76 (0.01)	&346 (6.92)	&1037 (8.9)	&1353 (35.64)	&3322 (125.61)	&33.9 (0.42)	\\
+  \hspace{0.1cm} 	SL	&SL	&Base	&1.96 (0.00)	&904 (23.27)	&1537 (54.5)	&117 (1.88)	&227 (3.81)	&681 (2.53)	&7.80 (0.03)	&3.76 (0.01)	&346 (6.92)	&1037 (8.9)	&1353 (35.64)	&3322 (125.61)	&33.9 (0.42)	\\
   \hspace{0.1cm} 	SL	&SL	&OLS	&1.98 (0.00)	&883 (14.82)	&1680 (36.14)	&132 (0.97)	&256 (2.22)	&520 (5.37)	&7.46 (0.02)	&3.87 (0.01)	&365 (3.97)	&732 (8.41)	&1396 (21.59)	&3079 (68.2)	&31.8 (0.46)	\\
-  \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.96 (0.00)	&790 (8.45)	&1546 (17.33)	&117 (0.62)	&228 (1.12)	&457 (2.37)	&7.13 (0.01)	&3.79 (0)	&326 (2.71)	&650 (5.11)	&1308 (11.3)	&2992 (34.04)	&29.3 (0.26)	\\
+  \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.96 (0.00)	&790 (8.45)	&1546 (17.33)	&117 (0.62)	&228 (1.12)	&457 (2.37)	&7.13 (0.01)	&3.79 (0.00)	&326 (2.71)	&650 (5.11)	&1308 (11.3)	&2992 (34.04)	&29.3 (0.26)	\\
   \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.96 (0.00)	&719 (5.43)	&1404 (11.43)	&111 (0.35)	&216 (0.72)	&438 (1.48)	&7.08 (0.02)	&3.78 (0.01)	&299 (1.38)	&591 (2.65)	&1206 (6.41)	&2838 (26.78)	&27.1 (0.17)	\\
-  \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.96 (0.00)	&756 (15)	&1462 (29.92)	&111 (1.21)	&213 (2.49)	&422 (5.26)	&7.08 (0.04)	&3.78 (0.01)	&305 (4.51)	&597 (8.81)	&1193 (18.94)	&2879 (63.17)	&27.6 (0.49)	\\
-  \hspace{0.1cm} 	SL	&SL	&ERM	&3.36 (0.03)	&883 (34.46)	&1739 (71.05)	&146 (1.81)	&262 (3.79)	&550 (8.43)	&13.33 (0.29)	&6.79 (0.1)	&367 (9.7)	&708 (22.6)	&1544 (41.54)	&3942 (132.91)	&35 (0.95)	\\
+  \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.96 (0.00)	&756 (15.00)	&1462 (29.92)	&111 (1.21)	&213 (2.49)	&422 (5.26)	&7.08 (0.04)	&3.78 (0.01)	&305 (4.51)	&597 (8.81)	&1193 (18.94)	&2879 (63.17)	&27.6 (0.49)	\\
+  \hspace{0.1cm} 	SL	&SL	&ERM	&3.36 (0.03)	&883 (34.46)	&1739 (71.05)	&146 (1.81)	&262 (3.79)	&550 (8.43)	&13.33 (0.29)	&6.79 (0.10)	&367 (9.7)	&708 (22.6)	&1544 (41.54)	&3942 (132.91)	&35 (0.95)	\\
   \midrule																	
   \texttt{Global}																	\\
-  \hspace{0.1cm} 	SL	&SL	&Base	&1.96 (0.00)	&703 (87.28)	&1464 (117.43)	&\textbf{94 (0.8)}	&183 (5.01)	&392 (11.42)	&6.68 (0.02)	&3.72 (0.00)	&254 (4.43)	&533 (15.75)	&1271 (87.73)	&4107 (195.03)	&30.2 (0.54)	\\
-  \hspace{0.1cm} 	SL	&SL	&OLS	&1.96 (0.00)	&700 (29.64)	&1404 (50.13)	&106 (2.1)	&204 (4.31)	&439 (9.85)	&6.73 (0.01)	&3.72 (0.00)	&288 (9.11)	&574 (15.47)	&1273 (36.26)	&3179 (117.9)	&27.9 (0.66)	\\
-  \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.95 (0.00)	&571 (7.37)	&1136 (18.48)	&97 (0.58)	&184 (1.79)	&383 (3.54)	&6.71 (0.01)	&3.70 (0.00)	&248 (2.19)	&493 (5.79)	&1047 (12.74)	&2465 (43.77)	&22.9 (0.28)	\\
-  \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.96 (0.00)	&553 (5.43)	&1084 (14.03)	&97 (0.74)	&185 (1.91)	&381 (3.82)	&6.78 (0.01)	&3.73 (0.01)	&245 (2.09)	&483 (5.11)	&1014 (11.45)	&2309 (37.35)	&22.1 (0.25)	\\
-  \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.95 (0.00)	&562 (12.27)	&1113 (30.88)	&\textbf{93 (1.29)}	&\textit{177 (3.29)}	&\textit{366 (6.59)}	&6.74 (0.02)	&3.71 (0.01)	&243 (4.18)	&479 (10.35)	&1013 (20.66)	&2384 (66.93)	&22.3 (0.5)	\\
-  \hspace{0.1cm} 	SL	&SL	&ERM	&3.37 (0.02)	&718 (44.67)	&1449 (89.3)	&137 (4.29)	&249 (9.11)	&511 (22.28)	&13.61 (0.38)	&6.86 (0.08)	&330 (13.48)	&635 (25.32)	&1332 (53.24)	&3102 (156.47)	&29.7 (1.21)	\\
+  \hspace{0.1cm} 	SL	&SL	&Base	&1.96 (0)	&699 (78.83)	&1468 (104.96)	&\textbf{94 (0.96)}	&183 (4.46)	&393 (11)	&6.68 (0.01)	&3.72 (0.00)	&254 (4.01)	&534 (13.97)	&1258 (90.54)	&4057 (220.21)	&30.0 (0.80)	\\
+  \hspace{0.1cm} 	SL	&SL	&OLS	&1.96 (0)	&694 (29.29)	&1394 (49.44)	&106 (2.03)	&203 (3.93)	&438 (9.85)	&6.73 (0.01)	&3.71 (0.00)	&286 (8.94)	&572 (15.07)	&1266 (39.06)	&3149 (128.55)	&27.7 (0.75)	\\
+  \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.95 (0)	&569 (8.08)	&1133 (18.36)	&97 (0.58)	&184 (1.69)	&383 (3.5)	&6.70 (0.01)	&3.70 (0.00)	&248 (2.39)	&492 (5.82)	&1047 (13.24)	&\textbf{2459 (44.76)}	&22.9 (0.29)	\\
+  \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.96 (0)	&552 (5.34)	&1084 (13.09)	&97 (0.66)	&185 (1.71)	&382 (3.47)	&6.78 (0.02)	&3.73 (0.01)	&245 (1.95)	&484 (4.71)	&\textbf{1014 (10.71)}	&\textbf{2309 (34.7)}	&\textbf{22.1 (0.23)}	\\
+  \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.95 (0)	&562 (11.06)	&1113 (27.8)	&\textbf{94 (1.16)}	&\textbf{178 (2.97)}	&\textbf{367 (5.94)}	&6.73 (0.02)	&3.71 (0.01)	&243 (3.74)	&479 (9.32)	&\textbf{1014 (18.79)}	&\textbf{2384 (61.06)}	&\textbf{22.3 (0.45)}	\\
+  \hspace{0.1cm} 	SL	&SL	&ERM	&3.37 (0.02)	&722 (40.44)	&1453 (79.67)	&137 (3.82)	&249 (8.04)	&508 (21.61)	&13.56 (0.38)	&6.85 (0.08)	&332 (12.46)	&638 (22.86)	&1329 (56.91)	&3087 (154.87)	&29.7 (1.12)	\\ 
   
-  
-  
+  \midrule
+  \midrule
+  \multicolumn{4}{l}{\texttt{Bottom-up}: \textit{impact of hierarchy}}																	\\
+  \hspace{0.1cm} 	RHL (ours)	&HL (ours)	&None	&\textbf{1.94 (0.00)}	&560 (23.05)	&\textbf{1103 (62.42)}	&101 (1.10)	&194 (2.93)	&\textbf{407 (11.58)}	&6.69 (0.02)	&3.68 (0.01)	&252 (5.08)	&499 (13.51)	&\textbf{1053 (52.76)}	&\textbf{2352 (226.07)}	&\textbf{22.8 (1.17)}	\\
   \bottomrule
-  \end{tabular}}
+  
+\end{tabular}}
   \end{center}
   \end{sidewaystable*}
 

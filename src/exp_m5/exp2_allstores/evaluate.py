@@ -25,29 +25,33 @@ df = read_m5(store_level=False)
 df_S = calc_summing_matrix(df[[time_index] + aggregation_cols], aggregation_cols, 
                             aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
 # Create forecast set
-_, _, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0)
+X, Xind, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0)
 #%% Load experimental results
 folder = './src/exp_m5/exp2_allstores'
 experiments = [ 
                 'globalall_objse_evalmse', 
                 'bu_objmse_evalmse',
-                'bu_objmse_evalhmse', 
-                'bu_objtweedie_evalmse', 
-                'bu_objtweedie_evalhmse',
-                'bu_objtweedie_evaltweedie',
+                # 'bu_objmse_evalhmse', 
+                # 'bu_objtweedie_evalmse', 
+                # 'bu_objtweedie_evalhmse',
+                # 'bu_objtweedie_evaltweedie',
                 'bu_objhse_evalhmse', 
+                # 'bu_objhse_evalhmse_moreiters', 
+                # 'bu_objhse_evalhmse_nofeaturefraction', 
+                # 'bu_objhse_evalhmse_mildfeaturefraction', 
+                # 'bu_objhse_evalhmse_nobagging',
                 'bu_objhse_evalmse',
-                # 'bu_objrhse_evalhmse',
+                'bu_objrhse_evalhmse',
                 # 'bu_objrhse_evalmse',
-                'sepagg_objse_evalmse'
+                # 'sepagg_objse_evalmse'
                 ]
 
 base='bu_objmse_evalmse'
 # Load results
 df_result = pd.DataFrame()
 for experiment in experiments:
-    # df = pd.read_csv(f'{folder}/{experiment}.csv', index_col=[0, 1, 2, 3])
     df = pd.read_parquet(f'{folder}/{experiment}.parquet')
+    df = df.rename(index = {df.index.get_level_values(1).unique()[0]:experiment}, level=1)
     df.columns = pd.DatetimeIndex(df.columns)
     df.index = df.index.set_levels(df.index.levels[0].astype(int), level=0)
     scenario = experiment[:experiment.find('_')]
@@ -56,17 +60,8 @@ for experiment in experiments:
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate rmse per seed
 rmse = pd.DataFrame()
-seeds = [0, 1, 2, 3, 4, 6, 7, 8]
-# for seed in seeds:
-#     rmse_seed, _ = calc_level_method_rmse(df_result.loc[seed], targets, base=base)
-#     rmse_seed = pd.concat({f'{seed}': rmse_seed}, names=['Seed'])
-#     rmse = pd.concat((rmse, rmse_seed))
-# # Aggregate results
-# rmse_mean = rmse.groupby(['Aggregation']).mean()
-# index_cols = list(rmse_mean.index.drop('All series')) + ['All series']
-# rmse_mean = rmse_mean.reindex(index = index_cols)
-# rel_rmse = rmse_mean.div(rmse_mean[base], axis=0)
-scenarios = ['globalall', 'bu', 'sepagg']
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+scenarios = ['globalall', 'bu']
 for scenario in scenarios:
     for seed in seeds:
         df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]
@@ -84,3 +79,41 @@ rmse_std = rmse_std.unstack(0).T.swaplevel(0, 1).sort_index(level=0).dropna()
 rmse_mean.to_csv(f'{folder}/rmse_lgbm_hier.csv')
 rmse_std.to_csv(f'{folder}/rmse_std_lgbm_hier.csv')
 # rel_rmse.to_csv(f'{folder}/rel_rmse_lgbm_hier.csv')
+#%% Variance plot
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+rmse_allseries = rmse.loc[(slice(None), slice(None), 'All series')]
+keep_cols = [   'bu_objhse_evalhmse', 
+                'bu_objhse_evalmse',
+                'bu_objrhse_evalhmse',
+                'bu_objmse_evalhmse', 
+                'bu_objmse_evalmse', 
+                'bu_objtweedie_evalmse', 
+                'wls_var',
+                'mint_shrink'
+                ]
+renamed_cols = ['Bottom-up: HL/HL', 'Bottom-up: HL/SL', 'Bottom-up: RHL/HL', 'Bottom-up: SL/HL', 'Bottom-up: SL/SL', 'Bottom-up: TL/SL', 'Global: WLS-var', 'Global: MinT-shrink']
+rmse_allseries = rmse_allseries[keep_cols]
+rmse_allseries.columns = pd.Index(renamed_cols, name='Method')
+rmse_allseries = rmse_allseries.stack(0)
+rmse_allseries = pd.DataFrame(rmse_allseries).rename(columns={0:'RMSE'}).sort_index()
+rmse_allseries.reset_index(inplace=True)
+rmse_allseries.drop(columns = 'Scenario', inplace=True)
+
+colors = ['#ff7f0e','#1f77b4','#2ca02c']
+sns.set_palette(sns.color_palette(colors))
+fig, axes = plt.subplots(1, 1)
+for i, ax in enumerate(fig.axes):
+    sns.boxplot(ax = ax, y="RMSE", x='Method', data=rmse_allseries, width=1, showfliers=False)
+    ax.set_title(label='RMSE - All series', fontsize=12)
+    ax.tick_params(labelsize=12)
+    ax.spines['top'].set_color('white') 
+    ax.spines['right'].set_color('white')
+    ax.set_ylabel(ylabel = 'RMSE', fontsize=12)
+    # ax.legend_.remove()
+handles, labels = ax.get_legend_handles_labels()
+leg = fig.legend(handles, labels, loc = 'lower center', ncol=3)
+leg.get_frame().set_linewidth(0.0)
+plt.xticks(rotation=45)
+fig.tight_layout()

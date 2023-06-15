@@ -28,10 +28,10 @@ experiments = [
                 'bu_objtweedie_evalhmse',
                 'bu_objtweedie_evaltweedie',
                 'bu_objhse_evalhmse', 
-                'bu_objhse_evalmse',
+                # 'bu_objhse_evalmse',
                 # 'bu_objrhse_evalhmse',
                 # 'bu_objrhse_evalmse',
-                'sepagg_objmse_evalmse'
+                # 'sepagg_objmse_evalmse'
                 ]
 base='bu_objmse_evalmse'
 # Load results
@@ -44,7 +44,7 @@ for experiment in experiments:
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate rmse per seed
 rmse = pd.DataFrame()
-scenarios = ['globalall', 'bu', 'sepagg']
+scenarios = ['globalall', 'bu']
 for scenario in scenarios:
     for seed in range(n_seeds):
         df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]
