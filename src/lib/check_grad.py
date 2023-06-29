@@ -108,9 +108,46 @@ for i in range(gradient.shape[0]):
 assert np.allclose(hessian_exact, auto_hessian)
 #%% Sparse grad - code check for bol.com
 from scipy.sparse import csc_array
-mask = csc_array((np.ones(6), ([0, 0, 1, 1, 30489, 30489], [0, 1, 1236, 1237, 0, 1])), shape=(30490, 1238))
+import numpy as np
+mask = csc_array((np.zeros(6), ([0, 0, 1, 1, 30489, 30489], [0, 1, 1236, 1237, 0, 1])), shape=(30490, 1238))
+#eps_mask = csc_array((np.full(7, 1e-12), ([0, 0, 1, 1, 30489, 30489, 30489], [0, 1, 1236, 1237, 0, 1, 2])), shape=(30490, 1238), dtype=np.float32)
+
 hessian_step = csc_array(np.sum(S.T.multiply(denominator.T), axis=1).T)
 hessian_full = csc_array(hessian_step.todense().repeat(1238, axis=0))
 
 hessian_sparse = csc_array(mask.T * hessian_step)
 hessian_sparse2 = csc_array(mask.T * hessian_full)
+
+#%%
+
+yhat_bottom_dense = np.random.rand(df_target.shape[0], df_target.shape[1])
+yhat_bottom_dense *= np.random.binomial(size=yhat_bottom_dense.shape, n=1, p=0.2)
+yhat_bottom = csc_array(yhat_bottom_dense.T)
+# yhat_dense = S @ yhat_bottom_dense.T
+
+def _hierarchical_obj_se(preds, train_data, S, denominator, y, mask, date_placed_codes, \
+                        global_id_codes, n_date_placed, n_global_id):
+    # Compute predictions for all aggregations
+    # predictions = np.maximum(preds.astype(S.dtype), 1e-6)
+    predictions = preds.astype(S.dtype)
+    yhat_bottom = csc_array((predictions, (global_id_codes, date_placed_codes)), \
+                    shape=(n_global_id, n_date_placed), dtype=np.float32)
+    eps_mask = csc_array((np.full(len(predictions), 1e-6, dtype=np.float32), (global_id_codes, date_placed_codes)), \
+                    shape=(n_global_id, n_date_placed))     
+    yhat = (S @ yhat_bottom)
+    # Compute gradients for all aggregations
+    gradient_agg = csc_array((yhat - y) * denominator)
+    # Convert gradients back to bottom-level series
+    gradient_full = csc_array(gradient_agg.T @ S)
+    # Apply mask to only keep entries that are also in preds
+    gradient_sparse = csc_array(mask.T * gradient_full)
+    # Output gradient and hessian
+    gradient = gradient_sparse.data
+    
+    # Calculate hessian
+    hessian_step = csc_array(np.sum(S.T.multiply(denominator.T), axis=1).T)
+    # Apply mask to only keep entries that are also in preds
+    hessian_sparse = csc_array(mask.T * hessian_step)
+    hessian = hessian_sparse.data
+
+    return gradient, hessian

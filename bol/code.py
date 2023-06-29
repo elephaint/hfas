@@ -32,9 +32,12 @@ def _hierarchical_obj_se(preds, train_data, S, denominator, y, mask, date_placed
 def _hierarchical_obj_se(preds, train_data, S, denominator, y, mask, date_placed_codes, \
                         global_id_codes, n_date_placed, n_global_id):
     # Compute predictions for all aggregations
-    predictions = np.maximum(preds.astype(S.dtype), 1e-6)
+    # predictions = np.maximum(preds.astype(S.dtype), 1e-6)
+    predictions = preds.astype(S.dtype)
     yhat_bottom = csc_array((predictions, (global_id_codes, date_placed_codes)), \
-                    shape=(n_global_id, n_date_placed), dtype=np.float32)    
+                    shape=(n_global_id, n_date_placed), dtype=np.float32)
+    # eps_mask = csc_array((np.full(len(predictions), 1e-6, dtype=np.float32), (global_id_codes, date_placed_codes)), \
+    #                 shape=(n_global_id, n_date_placed))     
     yhat = (S @ yhat_bottom)
     # Compute gradients for all aggregations
     gradient_agg = csc_array((yhat - y) * denominator)

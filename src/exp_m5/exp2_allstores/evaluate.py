@@ -27,46 +27,51 @@ df_S = calc_summing_matrix(df[[time_index] + aggregation_cols], aggregation_cols
 # Create forecast set
 X, Xind, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0)
 #%% Load experimental results
-folder = './src/exp_m5/exp2_allstores'
+# folder = './src/exp_m5/exp2_allstores/lower_learningrate'
+folder = './src/exp_m5/exp2_allstores/lr_0.05'
+
 experiments = [ 
                 'globalall_objse_evalmse', 
                 'bu_objmse_evalmse',
-                # 'bu_objmse_evalhmse', 
-                # 'bu_objtweedie_evalmse', 
-                # 'bu_objtweedie_evalhmse',
-                # 'bu_objtweedie_evaltweedie',
+                'bu_objmse_evalhmse', 
                 'bu_objhse_evalhmse', 
+                'bu_objhse_evalmse',
+                'bu_objtweedie_evalhmse',
+                'bu_objtweedie_evalmse', 
+                'bu_objtweedie_evaltweedie',
                 # 'bu_objhse_evalhmse_moreiters', 
                 # 'bu_objhse_evalhmse_nofeaturefraction', 
                 # 'bu_objhse_evalhmse_mildfeaturefraction', 
                 # 'bu_objhse_evalhmse_nobagging',
-                'bu_objhse_evalmse',
                 'bu_objrhse_evalhmse',
                 # 'bu_objrhse_evalmse',
-                # 'sepagg_objse_evalmse'
+                'sepagg_objse_evalmse'
                 ]
 
 base='bu_objmse_evalmse'
+# base = 'base'
 # Load results
 df_result = pd.DataFrame()
 for experiment in experiments:
     df = pd.read_parquet(f'{folder}/{experiment}.parquet')
-    df = df.rename(index = {df.index.get_level_values(1).unique()[0]:experiment}, level=1)
+    scenario = experiment[:experiment.find('_')]
+    if scenario == 'bu':
+        df = df.rename(index = {df.index.get_level_values(1).unique()[0]:experiment}, level=1)
     df.columns = pd.DatetimeIndex(df.columns)
     df.index = df.index.set_levels(df.index.levels[0].astype(int), level=0)
-    scenario = experiment[:experiment.find('_')]
     df = pd.concat({f"{scenario}": df}, names=['Scenario'])
     df_result = pd.concat((df_result, df))
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate rmse per seed
 rmse = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-scenarios = ['globalall', 'bu']
+scenarios = ['globalall', 'sepagg', 'bu']
+# scenarios = ['globalall']
 for scenario in scenarios:
     for seed in seeds:
         df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]
         base = df_seed.index.get_level_values(0).unique()[0]
-        rmse_seed, _ = calc_level_method_rmse(df_result.loc[(scenario, seed, slice(None), slice(None))], targets, base=base)
+        rmse_seed, _ = calc_level_method_rmse(df_seed, targets, base=base)
         rmse_seed = pd.concat({f'{seed}': rmse_seed}, names=['Seed'])
         rmse_seed = pd.concat({f"{scenario}": rmse_seed}, names=['Scenario'])
         rmse = pd.concat((rmse, rmse_seed))

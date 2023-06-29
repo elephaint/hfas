@@ -182,7 +182,7 @@ In reconciliation methods, we see the following issues when scaling to many time
 \section{Sparse Hierarchical Loss} \label{sec:sparsehloss}
 We now present our main technical contribution. To find the best forecasts for the hierarchical forecasting problem \eqref{eq:hfp}, we try to find a model \(f(\cdot)\) by gradient-based optimization of the following loss function:
 \begin{align} \label{eq:whloss}
-  L &= \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t} - \hat{\textbf{y}}_{t})^2}{l \sum_{j=1}^n S_{ij}} \right] \; ,
+  L &= \lambda \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t, c} - \hat{\textbf{y}}_{t, c})^2}{l \sum_{j=1}^n S^c_{ij}} \right] + (1 - \lambda) \sum \left[ \frac{\frac{1}{2}(\textbf{y}_{t, t} - \hat{\textbf{y}}_{t, t})^2}{l \sum_{j=1}^{s^n} S^t_{ij}} \right] \; ,
 \end{align}
 in which \(l\) denotes the number of levels in the hierarchy and \(ij\) are the (row, column) indices of the elements of the \(S\)-matrix. Note that \eqref{eq:whloss} resembles the \textit{Weighted Root Mean Squared Error} from the M5 competition \cite{makridakis_m5_2022}.
 
@@ -253,33 +253,6 @@ and the gradient of the loss with respect to the bottom level time series \eqref
       1 &0 \\
       0 &1
     \end{bmatrix}  \;, \nonumber \\
-  &=  \left[ \frac{
-    \begin{bmatrix}
-      \hat{\textbf{y}}^1_{t} + \hat{\textbf{y}}^2_{t} - \textbf{y}^1_{t} - \textbf{y}^2_{t} \\
-      \hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t} \\
-      \hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t} \\
-    \end{bmatrix}
-    }{ 
-    \begin{bmatrix}
-      4 &2 &2
-    \end{bmatrix}^\intercal  
-    } \right]^\intercal
-    \begin{bmatrix}
-      1 &1 \\
-      1 &0 \\
-      0 &1
-    \end{bmatrix}  \;, \nonumber \\
-  &=          
-   \begin{bmatrix}
-     \frac{1}{4}(\hat{\textbf{y}}^1_{t} + \hat{\textbf{y}}^2_{t} - \textbf{y}^1_{t} - \textbf{y}^2_{t}) \\
-     \frac{1}{2}(\hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t}) \\
-     \frac{1}{2}(\hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t}) \\
-   \end{bmatrix}^\intercal
-   \begin{bmatrix}
-     1 &1 \\
-     1 &0 \\
-     0 &1
-   \end{bmatrix}  \;, \nonumber \\
   &=
   \begin{bmatrix}
     \frac{3}{4}(\hat{\textbf{y}}^1_{t} - \textbf{y}^1_{t}) + \frac{1}{4}(\hat{\textbf{y}}^2_{t} - \textbf{y}^2_{t}) \\
@@ -342,28 +315,28 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
     Scenario/Objective & Metric  & Reconciliation &Product	&Department	&Category &Department	&Category	&Total &Store	&State &Department &Category &Total	&Total	&All series \\
     \midrule																	
     \texttt{Bottom-up}																	\\
-    \hspace{0.1cm} 	\textit{SL}	&\textit{SL}	&\textit{None}	&\textbf{\textit{1.00}}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textbf{\textit{1.00}}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textbf{\textit{1.00}}	&\textit{1.00}	\\
-    \hspace{0.1cm} 	SL	&HL (ours)	&None	&\textbf{1.00}	&0.96	&\textbf{0.96}	&0.97	&0.96	&0.97	&1.00	&\textbf{1.00}	&0.97	&0.96	&\textbf{0.97}	&\textbf{0.97}	&\textbf{0.97}	\\
-    \hspace{0.1cm} 	HL (ours)	&HL (ours)	&None	&\textbf{1.00}	&\textbf{0.89}	&\textbf{0.88}	&\textbf{0.92}	&\textbf{0.91}	&\textbf{0.94}	&\textbf{0.99}	&\textbf{1.00}	&\textbf{0.89}	&\textbf{0.88}	&\textbf{0.92}	&\textbf{0.94}	&\textbf{0.91}	\\
-    \hspace{0.1cm} 	HL (ours)	&SL	&None	&\textbf{1.00}	&\textbf{0.91}	&\textbf{0.90}	&0.96	&0.95	&0.98	&0.99	&1.00	&\textbf{0.92}	&\textbf{0.92}	&\textbf{0.95}	&\textbf{0.94}	&\textbf{0.93}	\\
-    \hspace{0.1cm} 	TL	&HL (ours)	&None	&\textbf{1.00}	&0.97	&0.99	&1.00	&1.00 &1.00	&1.00	&1.00	&0.98	&0.99	&1.01	&\textbf{1.02}	&1.00	\\
-    \hspace{0.1cm} 	TL	&SL	&None	&\textbf{1.00}	&0.97	&\textbf{0.96}	&1.02	&1.02	&1.02	&1.01	&1.01	&1.00	&1.00	&\textbf{1.00}	&\textbf{0.97}	&\textbf{0.98}	\\
+    \hspace{0.1cm} 	\textit{SL}	&\textit{SL}	&\textit{None}	&\textbf{\textit{1.00}}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	&\textit{1.00}	\\
+    \hspace{0.1cm} 	SL	&HL	&None	&\textbf{1.00}	&0.96	&0.96	&0.97	&0.96	&0.97	&1.00	&1.00	&0.97	&0.96	&0.97	&0.97	&0.97	\\
+    \hspace{0.1cm} 	HL	&HL	&None	&\textbf{1.00}	&\textbf{0.87}	&\textbf{0.85}	&\textbf{0.92}	&\textbf{0.90}	&0.93	&0.99	&1.00	&\textbf{0.88}	&\textbf{0.87}	&\textbf{0.90}	&\textbf{0.90}	&\textbf{0.89}	\\
+    \hspace{0.1cm} 	HL	&SL	&None	&\textbf{1.00}	&0.91	&0.90	&0.96	&0.95	&0.98	&0.99	&1.00	&0.92	&0.92	&0.95	&0.94	&0.93	\\
+    \hspace{0.1cm} 	TL	&HL	&None	&\textbf{1.00}	&0.97	&0.99	&1.00	&1.00	&1.00	&1.00	&1.00	&0.98	&0.99	&1.01	&1.02	&1.00	\\
+    \hspace{0.1cm} 	TL	&SL	&None	&\textbf{1.00}	&0.97	&0.96	&1.02	&1.02	&1.02	&1.01	&1.01	&1.00	&1.00	&1.00	&0.97	&0.98	\\
     \hspace{0.1cm} 	TL	&TL	&None	&1.06	&1.72	&1.71	&1.34	&1.36	&1.35	&1.27	&1.13	&1.48	&1.48	&1.46	&1.68	&1.57	\\
     \midrule																	
     \multicolumn{2}{l}{\texttt{Separate aggregations}}																	\\
-    \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.59	&1.38	&1.15	&1.15	&1.66	&1.17	&1.02	&1.35	&2.05	&1.28	&1.41	&1.48	\\
-    \hspace{0.1cm} 	SL	&SL	&OLS	&1.02	&1.55	&1.50	&1.29	&1.30	&1.27	&1.12	&1.05	&1.43	&1.44	&1.32	&1.31	&1.39	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.39	&1.38	&1.15	&1.16	&1.11	&1.07	&1.03	&1.27	&1.28	&1.24	&1.27	&1.28	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&1.27	&1.26	&1.09	&1.10	&1.07	&1.06	&1.03	&1.17	&1.17	&1.14	&1.21	&1.18	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&1.33	&1.31	&1.09	&1.08	&1.03	&1.06	&1.03	&1.19	&1.18	&1.13	&1.22	&1.20	\\
-    \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.55	&1.56	&1.43	&1.33	&1.34	&2.00	&1.85	&1.43	&1.40	&1.46	&1.68	&1.53	\\
+    \hspace{0.1cm} 	SL	&SL	&Base	&\textbf{1.00}	&1.09	&1.14	&0.95	&0.99	&0.92	&1.00	&1.00	&1.09	&1.07	&1.14	&1.52	&1.20	\\
+    \hspace{0.1cm} 	SL	&SL	&OLS	&\textbf{1.00}	&1.14	&1.17	&1.02	&1.02	&1.03	&0.99	&1.00	&1.08	&1.10	&1.14	&1.24	&1.14	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&\textbf{1.00}	&1.00	&1.00	&0.94	&0.93	&0.92	&\textbf{0.98}	&\textbf{0.99}	&0.97	&0.97	&0.98	&1.02	&0.99	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-var	&\textbf{1.00}	&0.96	&0.97	&0.94	&0.93	&0.93	&0.99	&1.00	&0.94	&0.95	&0.95	&0.98	&0.96	\\
+    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&\textbf{1.00}	&0.95	&0.96	&\textbf{0.92}	&0.91	&0.90	&0.99	&\textbf{0.99}	&0.93	&0.94	&0.95	&0.98	&0.95	\\
+    \hspace{0.1cm} 	SL	&SL	&ERM	&1.70	&1.23	&1.19	&1.39	&1.29	&1.23	&1.82	&1.76	&1.29	&1.25	&1.23	&1.25	&1.25	\\
     \midrule																	
     \texttt{Global}																	\\
-    \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.23	&1.32	&\textbf{0.92}	&0.93	&0.96	&1.00	&1.01	&0.99	&1.05	&1.19	&1.73	&1.31	\\
+    \hspace{0.1cm} 	SL	&SL	&Base	&1.01	&1.23	&1.32	&0.92	&0.93	&0.96	&1.00	&1.01	&0.99	&1.05	&1.19	&1.73	&1.31	\\
     \hspace{0.1cm} 	SL	&SL	&OLS	&1.01	&1.22	&1.25	&1.04	&1.03	&1.07	&1.01	&1.01	&1.12	&1.13	&1.20	&1.34	&1.21	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.00	&1.02	&0.95	&0.94	&0.93	&1.01	&1.01	&0.97	&0.97	&0.99	&\textbf{1.05}	&1.00	\\
-    \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&0.97	&0.97	&0.95	&0.94	&0.93	&1.02	&1.02	&0.96	&0.95	&\textbf{0.96}	&\textbf{0.98}	&\textbf{0.96}	\\
-    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&0.99	&1.00	&\textbf{0.92} &\textbf{0.90}	&\textbf{0.89}	&1.01	&1.01	&0.95	&0.95	&\textbf{0.96}	&\textbf{1.01}	&\textbf{0.97}	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-struct	&1.01	&1.00	&1.02	&0.95	&0.94	&0.93	&1.01	&1.01	&0.97	&0.97	&0.99	&1.05	&1.00	\\
+    \hspace{0.1cm} 	SL	&SL	&WLS-var	&1.01	&0.97	&0.97	&0.95	&0.94	&0.93	&1.02	&1.02	&0.96	&0.95	&0.96	&0.98	&0.96	\\
+    \hspace{0.1cm} 	SL	&SL	&MinT-shrink	&1.01	&0.99	&1.00	&\textbf{0.92} &\textbf{0.90}	&\textbf{0.89}	&1.01	&1.01	&0.95	&0.95	&0.96	&1.01	&0.97	\\
     \hspace{0.1cm} 	SL	&SL	&ERM	&1.74	&1.27	&1.30	&1.34	&1.26	&1.24	&2.03	&1.86	&1.30	&1.26	&1.26	&1.31	&1.30	\\    
     \midrule
     \midrule
@@ -373,6 +346,23 @@ Hence, we \textit{smooth} the bottom-level gradient by adding to it portions of 
     \end{tabular}}
     \end{center}
     \end{sidewaystable*}
+
+
+    \begin{table*}[t]
+      \caption{Test}
+      \label{tab:presentation_table}
+      \begin{center}
+      {\small\setlength{\tabcolsep}{2pt} 
+      \begin{tabular}{l c  cc}
+      \toprule 
+      Metric &TL &SL &HL (ours) \\
+      \midrule
+      RMSE &\textbf{1.00} &1.03 &1.03 \\ 
+      MAE &\textbf{1.00} &1.12 &1.13 \\
+      \bottomrule
+      \end{tabular}}
+      \end{center}
+      \end{table*}
 
   \paragraph{Analysis: impact of hierarchy} We investigate the impact of the choice of hierarchy. In hierarchical forecasting problems, the aggregation matrix \(S\) is commonly fixed a priori and considered constant during training and prediction. As we are performing the reconciliation in an end-to-end fashion during training, we can modify \(S\) at every iteration. This allows us to understand the robustness of our solution to possible misspecification of the hierarchy \(S\), and more generally, to what extent the choice of the hierarchy has an effect on forecasting performance. We perform an experiment by randomly sampling an \(S\)-matrix at every iteration of the LightGBM training process. At every iteration, we sample uniformly at random (i) a number of levels for the hierarchy and (ii) a number of maximum categories for the level and construct a random \(S\)-matrix to be used in the gradient \eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess}. We validate and test on the `true' \(S\)-matrix. We present the results in Table~\ref{tab:allstores_rel}, under the scenario \texttt{Bottom-up}: \textit{impact of hierarchy}, where we refer to the \textit{Randomized Hierarchical Loss} as \textit{RHL}. We find that performance deteriorates to the level of the baseline, however we also find that our results in this experiment show higher variance compared to the baseline methods (see Table~\ref{tab:allstores_abs} in \ref{app:experiments}). 
 

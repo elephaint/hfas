@@ -27,6 +27,34 @@ def hierarchical_obj_se(preds, train_data, S):
 
     return gradient, hessian
 
+def hierarchical_obj_se_new(preds, train_data, Sc=None, St=None):
+    # Get required fields
+    assert 'n_levels' in train_data.params, 'Train data should contain parameter n_levels, the number of levels in the hierarchy'   
+    assert (Sc is not None or St is not None), 'A cross-sectional summing matrix Sc or temporal summing matrix St should be given'
+    n_levels_c = train_data.params['n_levels_c']
+    n_levels_t = train_data.params['n_levels_t']
+    # Switch sparse/dense
+    if issparse(S):
+        denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
+        denominator_t = 1 / (n_levels_t * np.sum(St, axis=1)).A
+        hessian_step_c = np.asarray(np.sum(Sc.T.multiply(denominator_c.T), axis=1)).T    
+        hessian_step_t = np.asarray(np.sum(St.T.multiply(denominator_t.T), axis=1)).T
+    else:
+        denominator = 1 / (n_levels * np.sum(S, axis=1, keepdims=True))
+        hessian_step = np.sum(S.T * denominator.T, axis=1, keepdims=True).T
+
+    # Compute predictions for all aggregations
+    yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
+    y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
+    # Compute gradients for all aggregations
+    gradient_agg = (S @ (yhat_bottom - y_bottom)) * denominator
+    # Convert gradients back to bottom-level series
+    gradient = (gradient_agg.T @ S).reshape(-1)
+    # Compute hessian
+    hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
+
+    return gradient, hessian
+
 def hierarchical_obj_se_random(preds, train_data, S=None):
     # Get required fields
     assert 'n_bottom_timeseries' in train_data.params, 'Train data should contain parameter n_bottom_timeseries, the number of bottom timeseries in the hierarchy'   

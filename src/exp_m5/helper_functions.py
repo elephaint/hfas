@@ -3,7 +3,7 @@ import numpy as np
 from scipy.sparse import csc_matrix, issparse
 from pathlib import Path
 #%% Read data
-def read_m5(first_date='01-01-2012', last_date='22-05-2016', store_level=True, store_id=0):
+def read_m5(first_date='2012-01-01', last_date='2016-05-22', store_level=True, store_id=0):
     directory = Path(__file__).parent
     filename = directory.joinpath('data/m5_dataset_products.parquet')
     df = pd.read_parquet(filename, 
@@ -59,9 +59,9 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
         X[f'{target}_lag{first_lag}_mavg{window}'] = group.transform(lambda x: x.rolling(window, min_periods=1).mean()).astype('float32')
     # Add weekday and target
     level_values = X.index.get_level_values(time_index)
-    X['dayofweek'] = (level_values.weekday).values
+    X['dayofweek'] = (level_values.isocalendar().day).values
     X['dayofmonth'] = (level_values.day).values
-    X['weekofyear'] = (level_values.week).values
+    X['weekofyear'] = (level_values.isocalendar().week).values
     X['monthofyear'] = (level_values.month).values
     X['dayofweek'] = X['dayofweek'].astype('category')
     X['dayofmonth'] = X['dayofmonth'].astype('category')
