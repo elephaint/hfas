@@ -4,9 +4,7 @@ from scipy.sparse import issparse, csc_matrix, vstack, eye
 #%% Hierarchical loss functions
 # Lightgbm objective function wrapper
 def hierarchical_obj_se(preds, train_data, S):
-    # Get required fields
-    assert 'n_levels' in train_data.params, 'Train data should contain parameter n_levels, the number of levels in the hierarchy'   
-    n_levels = train_data.params['n_levels']
+    n_levels = S.sum() // S.shape[1]
     # Switch sparse/dense
     if issparse(S):
         denominator = 1 / (n_levels * np.sum(S, axis=1)).A
@@ -27,31 +25,28 @@ def hierarchical_obj_se(preds, train_data, S):
 
     return gradient, hessian
 
-def hierarchical_obj_se_new(preds, train_data, Sc=None, St=None):
+def hierarchical_obj_se_withtemp(preds, train_data, Sc, St):
     # Get required fields
-    assert 'n_levels' in train_data.params, 'Train data should contain parameter n_levels, the number of levels in the hierarchy'   
-    assert (Sc is not None or St is not None), 'A cross-sectional summing matrix Sc or temporal summing matrix St should be given'
-    n_levels_c = train_data.params['n_levels_c']
-    n_levels_t = train_data.params['n_levels_t']
+    assert type(Sc) == type(St), 'Cross-sectional and temporal hierarchy matrices should have the same datatype'
+    n_levels_c = Sc.sum() // Sc.shape[1]
+    n_levels_t = St.sum() // St.shape[0]
     # Switch sparse/dense
-    if issparse(S):
+    if issparse(Sc) and issparse(St):
         denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
-        denominator_t = 1 / (n_levels_t * np.sum(St, axis=1)).A
-        hessian_step_c = np.asarray(np.sum(Sc.T.multiply(denominator_c.T), axis=1)).T    
-        hessian_step_t = np.asarray(np.sum(St.T.multiply(denominator_t.T), axis=1)).T
+        denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0), 1)).A
     else:
-        denominator = 1 / (n_levels * np.sum(S, axis=1, keepdims=True))
-        hessian_step = np.sum(S.T * denominator.T, axis=1, keepdims=True).T
-
+        denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1, keepdims=True))
+        denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0, keepdims=True), 1))
     # Compute predictions for all aggregations
-    yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
-    y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
+    yhat_bottom = preds.astype(np.float64).reshape(-1, Sc.shape[1]).T
+    y_bottom = train_data.get_label().astype(np.float64).reshape(-1, Sc.shape[1]).T
     # Compute gradients for all aggregations
-    gradient_agg = (S @ (yhat_bottom - y_bottom)) * denominator
+    error = (yhat_bottom - y_bottom)
+    denominator = denominator_c @ denominator_t
+    gradient_agg = (Sc @ error @ St) * denominator
     # Convert gradients back to bottom-level series
-    gradient = (gradient_agg.T @ S).reshape(-1)
-    # Compute hessian
-    hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
+    gradient = (Sc.T @ gradient_agg @ St.T).T.reshape(-1)
+    hessian = (Sc.T @ denominator @ St.T).T.reshape(-1)
 
     return gradient, hessian
 
@@ -108,12 +103,39 @@ def hierarchical_obj_se_random(preds, train_data, S=None):
 # Lightgbm objective function wrapper
 def hierarchical_eval_mse(preds, eval_data, S):
     # Get required fields
-    assert 'n_levels' in eval_data.params, 'Eval data should contain n_levels, the number of levels in the hierarchy'   
-    assert issparse(S), "S should be a scipy sparse matrix"
+    n_levels = S.sum() // S.shape[1]
+    # Switch sparse/dense
+    if issparse(S):
+        denominator = 1 / (n_levels * np.sum(S, axis=1)).A
+        hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T    
+    else:
+        denominator = 1 / (n_levels * np.sum(S, axis=1, keepdims=True))
+        hessian_step = np.sum(S.T * denominator.T, axis=1, keepdims=True).T
     # Compute predictions for all aggregations
-    n_levels = eval_data.params['n_levels']
     y = (S @ eval_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T)
     yhat = (S @ preds.astype(S.dtype).reshape(-1, S.shape[1]).T)
-    loss = np.sum(0.5 * np.square(y - yhat) / (n_levels * np.sum(S, axis=1).A))
+    loss = np.sum(0.5 * np.square(y - yhat) * denominator)
     
     return 'hierarchical_eval_hmse', np.sum(loss) / len(preds) , False
+
+# Lightgbm objective function wrapper
+def hierarchical_eval_mse_withtemp(preds, eval_data, Sc, St):
+    # Get required fields
+    assert type(Sc) == type(St), 'Cross-sectional and temporal hierarchy matrices should have the same datatype'
+    # Get levels per hierarchy
+    n_levels_c = Sc.sum() // Sc.shape[1]
+    n_levels_t = St.sum() // St.shape[0]
+    # Calculate denominators. NB this can be done offline once!
+    if issparse(Sc):
+        denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
+        denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0), 1)).A
+    else:
+        denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1, keepdims=True))
+        denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0, keepdims=True), 1))    
+    # Compute predictions for all aggregations
+    denominator = denominator_c @ denominator_t
+    y = (Sc @ eval_data.get_label().astype(Sc.dtype).reshape(-1, Sc.shape[1]).T @ St)
+    yhat = (Sc @ preds.astype(Sc.dtype).reshape(-1, Sc.shape[1]).T @ St)
+    loss = np.sum(0.5 * np.square(y - yhat) * denominator)
+    
+    return 'hierarchical_eval_hmse_withtemp', np.sum(loss) / len(preds) , False

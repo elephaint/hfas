@@ -1,1 +1,1 @@
-from .hierarchical_loss import hierarchical_obj_se, hierarchical_obj_se_random, hierarchical_eval_mse
+from .hierarchical_loss import hierarchical_obj_se, hierarchical_obj_se_withtemp, hierarchical_obj_se_random, hierarchical_eval_mse, hierarchical_eval_mse_withtemp

@@ -1,3 +1,3 @@
 from .helper_functions import read_m5, create_forecast_set
-from .experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
+from .experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup, exp_m5_globalbottomup_withtemp
 from .experiments_timing import exp_m5_globalall_timing, exp_m5_sepagg_timing, exp_m5_globalbottomup_timing
