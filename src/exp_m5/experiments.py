@@ -5,12 +5,14 @@ import optuna
 import joblib
 import time
 from pathlib import Path
-from src.lib import hierarchical_obj_se, hierarchical_eval_mse, hierarchical_obj_se_random, HierarchicalLoss
+from src.lib import HierarchicalLoss, RandomHierarchicalLoss
 from hierts.reconciliation import aggregate_bottom_up_forecasts
 from scipy.sparse import csc_matrix
 from lightgbm import early_stopping, log_evaluation
 from functools import partial
 CURRENT_PATH = Path(__file__).parent
+import warnings
+warnings.filterwarnings('ignore')
 #%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
 def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
                     exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
@@ -106,7 +108,6 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_Sc, df_St,
 def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, name_bottom_timeseries, 
                             df_Sc, df_St, exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
     # Only keep bottom-level timeseries
-    Xb_ind = pd.DataFrame(index=Xind).loc[name_bottom_timeseries].index
     Xb = X[X['Aggregation'] == name_bottom_timeseries]
     # Create parameter dict
     params['seed'] = seed
@@ -128,7 +129,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     df_St_train = df_St.loc[:, start_train:end_train]
     df_Sc_train = df_Sc
     # Set objective and metric functions
-    params, fobj = set_objective(params, sobj, df_Sc_train, df_St_train)
+    params, fobj = set_objective(params, sobj, df_Sc_train, df_St_train, seed=seed)
     # Train and save model
     start = time.perf_counter()
     model = lgb.train(params, train_set, fobj=fobj)
@@ -152,7 +153,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     return forecasts_bu, t_train, t_predict
 
 #%% Objective and metric helper functions
-def set_objective(params, sobj, df_Sc=None, df_St=None):
+def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
     # Set objective
     if sobj == None or sobj == 'l2':
         params['objective'] = 'l2'
@@ -166,17 +167,15 @@ def set_objective(params, sobj, df_Sc=None, df_St=None):
         params['objective'] = None
         df_St_bottom = df_St.loc['date']
         fobj = HierarchicalLoss(df_Sc, df_St_bottom).objective
-        # fobj = partial(hierarchical_obj_se, df_Sc=df_Sc, df_St=df_St_bottom)
     elif sobj == 'hierarchical_obj_se_withtemp':
         assert df_Sc is not None
         assert df_St is not None
         params['objective'] = None
         fobj = HierarchicalLoss(df_Sc, df_St).objective
-        # fobj = partial(hierarchical_obj_se, df_Sc=df_Sc, df_St=df_St)
     elif sobj == 'hierarchical_obj_se_random':
         params['objective'] = None
         params['flag_params_random_hierarchical_loss'] = True
-        fobj = hierarchical_obj_se_random
+        fobj = RandomHierarchicalLoss(seed=seed).objective
     
     return params, fobj
 
@@ -191,13 +190,11 @@ def set_metric(params, seval, df_Sc, df_St):
         params['metric'] = seval
         df_St_bottom = df_St.loc['date']
         feval = HierarchicalLoss(df_Sc, df_St_bottom).metric
-        # feval = partial(hierarchical_eval_mse, df_Sc=df_Sc, df_St=df_St_bottom)
     elif seval == 'hierarchical_eval_hmse_withtemp':
         assert df_Sc is not None
         assert df_St is not None
         params['metric'] = seval
         feval = HierarchicalLoss(df_Sc, df_St).metric
-        # feval = partial(hierarchical_eval_mse, df_Sc=df_Sc, df_St=df_St)
     elif seval == 'tweedie':
         params['metric'] = 'tweedie'
         feval = None
@@ -300,7 +297,8 @@ def opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St):
                           fobj=fobj,
                           feval=feval,
                           callbacks=[early_stopping(100), 
-                                     log_evaluation(100)]
+                                     log_evaluation(100)],
+                          verbose_eval=False
                           )
         # Save best iteration and score
         best_iter += (1 / n_folds) * model.best_iteration

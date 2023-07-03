@@ -3,9 +3,16 @@ import pandas as pd
 from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional
 from src.exp_m5 import read_m5, create_forecast_set, exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
 #%% Set aggregations and target
-cross_sectional_aggregations = [['cat_id_enc'],
+cross_sectional_aggregations = [['state_id_enc'],
+                                ['store_id_enc'],
+                                ['cat_id_enc'],
                                 ['dept_id_enc'],
-                                ['item_id_enc']]
+                                ['state_id_enc', 'cat_id_enc'],
+                                ['state_id_enc', 'dept_id_enc'],
+                                ['store_id_enc', 'cat_id_enc'],
+                                ['store_id_enc', 'dept_id_enc'],
+                                ['item_id_enc'],
+                                ['item_id_enc', 'state_id_enc']]
 temporal_aggregations = [['year'],
                          ['year', 'month'],
                          ['year', 'week']]
@@ -15,7 +22,7 @@ name_bottom_timeseries = 'products'
 end_train = '2016-04-24'
 start_test = '2016-04-25'
 # Other experiment settings
-exp_folder = 'exp1_storeid=0_temporal'
+exp_folder = 'exp1_allstores_temporal'
 n_seeds = 10
 default_params = {'seed': 0,
                   'n_estimators': 2000,
@@ -29,7 +36,7 @@ default_params = {'seed': 0,
                   'n_days_test': 28,
                   'n_years_train': 3}
 #%% Read data
-df = read_m5(store_level=True, store_id=0)
+df = read_m5(store_level=False)
 # Add columns for temporal hierarchies
 df['week'] = df['date'].dt.isocalendar().week
 df['year'] = df['date'].dt.year
