@@ -99,10 +99,10 @@ def hierarchical_obj_se_new(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t):
 #%% Check grad new
 rng = np.random.default_rng(seed=0)
 # S = df_S.sparse.to_dense().values.astype('float64')
-Sc = df_Sc.sparse.to_coo()
-# Sc = df_Sc.sparse.to_dense().values.astype('float64')
-St = df_St.T.sparse.to_coo()
-# St = df_St.T.sparse.to_dense().values.astype('float64')
+# Sc = df_Sc.sparse.to_coo()
+Sc = df_Sc.values.astype('float64')
+# St = df_St.T.sparse.to_coo()
+St = df_St.values.astype('float64').T
 
 y = (Sc @ df_target.T.values @ St).astype('float64')
 n_levels_c = df_Sc.index.get_level_values('Aggregation').nunique()
