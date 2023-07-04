@@ -1,32 +1,45 @@
 #%% Import packages
 import pandas as pd
-from hierts.reconciliation import calc_summing_matrix, calc_level_method_rmse
+from hierts.reconciliation import hierarchy_cross_sectional, hierarchy_temporal, calc_level_method_rmse
 from src.exp_m5 import read_m5, create_forecast_set
 #%% Load data
-aggregation_cols = ['cat_id_enc', 'dept_id_enc', 'item_id_enc']
-aggregations = [['cat_id_enc'],
-                ['dept_id_enc']]
+cross_sectional_aggregations = [['cat_id_enc'],
+                                ['dept_id_enc'],
+                                ['item_id_enc']]
+temporal_aggregations = [['year'],
+                         ['year', 'month'],
+                         ['year', 'week']]
 time_index = 'date'
 target = 'sales'
 name_bottom_timeseries = 'products'
 end_train = '2016-04-24'
 start_test = '2016-04-25'
 n_seeds = 10
+#%% Read data
 df = read_m5(store_level=True, store_id=0)
-# Calculate summing matrix
-df_S = calc_summing_matrix(df[[time_index] + aggregation_cols], aggregation_cols, 
-                            aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
+# Add columns for temporal hierarchies
+df['week'] = df['date'].dt.isocalendar().week
+df['year'] = df['date'].dt.year
+df['month'] = df['date'].dt.month
+df['day'] = df['date'].dt.day
+# Calculate cross-sectional and temporal hierarchy summing matrices
+df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
+# Remove the double in the item_id_enc shape
+df_Sc = df_Sc.drop('item_id_enc') 
+df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 # Create forecast set
-_, _, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0)
+aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregations for col in cols]))
+df = df.drop(columns = ['week', 'year', 'month', 'day'])
+_, _, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target, forecast_day=0)
 #%% Load experimental results
-folder = './src/exp_m5/exp1_storeid=0'
+folder = './src/exp_m5/exp1_storeid=0_temporal'
 experiments = [ 
-                'globalall_objse_evalmse', 
+                # 'globalall_objse_evalmse', 
                 'bu_objmse_evalmse',
-                'bu_objmse_evalhmse', 
-                'bu_objtweedie_evalmse', 
-                'bu_objtweedie_evalhmse',
-                'bu_objtweedie_evaltweedie',
+                # 'bu_objmse_evalhmse', 
+                # 'bu_objtweedie_evalmse', 
+                # 'bu_objtweedie_evalhmse',
+                # 'bu_objtweedie_evaltweedie',
                 'bu_objhse_evalhmse', 
                 # 'bu_objhse_evalmse',
                 # 'bu_objrhse_evalhmse',
@@ -44,7 +57,7 @@ for experiment in experiments:
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate rmse per seed
 rmse = pd.DataFrame()
-scenarios = ['globalall', 'bu']
+scenarios = ['bu']
 for scenario in scenarios:
     for seed in range(n_seeds):
         df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]

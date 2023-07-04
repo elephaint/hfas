@@ -19,7 +19,7 @@ exp_folder = 'exp1_storeid=0_temporal'
 n_seeds = 10
 default_params = {'seed': 0,
                   'n_estimators': 2000,
-                  'n_trials': 1000,
+                  'n_trials': 100,
                   'learning_rate': 0.1,
                   'verbosity': -1,
                   'tuning': True,
@@ -27,7 +27,7 @@ default_params = {'seed': 0,
                   'max_levels_random': 2,
                   'max_categories_per_random_level': 1000,
                   'n_days_test': 28,
-                  'n_years_train': 3}
+                  'n_years_train': 4}
 #%% Read data
 df = read_m5(store_level=True, store_id=0)
 # Add columns for temporal hierarchies
@@ -41,7 +41,7 @@ df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True,
 df_Sc = df_Sc.drop('item_id_enc') 
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 # Create forecast set
-aggregation_cols = list(set([col for cols in cross_sectional_aggregations for col in cols]))
+aggregation_cols = [col for cols in cross_sectional_aggregations for col in cols]
 df = df.drop(columns = ['week', 'year', 'month', 'day'])
 X, Xind, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target, forecast_day=0)
 #%% Setting 1: global models for all time series
@@ -99,35 +99,35 @@ for experiment in experiments_agg:
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
                     {'exp_name':'bu_objmse_evalmse',
-                    'fobj':'l2',
-                    'feval':'l2'},
-                    {'exp_name':'bu_objmse_evalhmse',
-                    'fobj':'l2',
-                    'feval': 'hierarchical_eval_hmse'},
+                    'sobj':'l2',
+                    'seval':'l2'},
+                    # {'exp_name':'bu_objmse_evalhmse',
+                    # 'sobj':'l2',
+                    # 'seval': 'hierarchical_eval_hmse'},
                     # {'exp_name':'bu_objtweedie_evalmse',
-                    # 'fobj':'tweedie',
-                    # 'feval':'l2'},
+                    # 'sobj':'tweedie',
+                    # 'seval':'l2'},
                     # {'exp_name':'bu_objtweedie_evalhmse',
-                    # 'fobj':'tweedie',
-                    # 'feval': 'hierarchical_eval_hmse'},
+                    # 'sobj':'tweedie',
+                    # 'seval': 'hierarchical_eval_hmse'},
                     # {'exp_name':'bu_objtweedie_evaltweedie',
-                    # 'fobj':'tweedie',
-                    # 'feval': 'tweedie'},
+                    # 'sobj':'tweedie',
+                    # 'seval': 'tweedie'},
                     {'exp_name':'bu_objhse_evalhmse',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalhmse_withtemp',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
+                    'sobj': 'hierarchical_obj_se',
+                    'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalhmse_withtemp',
+                    # 'sobj': 'hierarchical_obj_se_withtemp',
+                    # 'seval': 'hierarchical_eval_hmse_withtemp'},
                     # {'exp_name':'bu_objhse_evalmse',
-                    # 'fobj': 'hierarchical_obj_se',
-                    # 'feval': 'l2'},
+                    # 'sobj': 'hierarchical_obj_se',
+                    # 'seval': 'l2'},
                     # {'exp_name':'bu_objrhse_evalhmse',
-                    # 'fobj': 'hierarchical_obj_se_random',
-                    # 'feval': 'hierarchical_eval_hmse'},
+                    # 'sobj': 'hierarchical_obj_se_random',
+                    # 'seval': 'hierarchical_eval_hmse'},
                     # {'exp_name':'bu_objrhse_evalmse',
-                    # 'fobj': 'hierarchical_obj_se_random',
-                    # 'feval': 'l2'},
+                    # 'sobj': 'hierarchical_obj_se_random',
+                    # 'seval': 'l2'},
                     ]
 # We loop over all the experiments and create forecasts for n_seeds
 for experiment in experiments_bu:
@@ -135,8 +135,8 @@ for experiment in experiments_bu:
     df_result_timings = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
-        sobj = experiment['fobj']
-        seval = experiment['feval']
+        sobj = experiment['sobj']
+        seval = experiment['seval']
         params = default_params.copy()
         forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, 
                                                 name_bottom_timeseries, df_Sc, df_St, exp_folder=exp_folder,

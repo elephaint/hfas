@@ -34,12 +34,20 @@ def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_
     # Set objective and metric functions
     params, fobj = set_objective(params, sobj)    
     # Train and save final model
-    start = time.perf_counter()
-    model = lgb.train(params, train_set, fobj=fobj)
-    end = time.perf_counter()
-    t_train = (end - start)
     model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
-    joblib.dump(model, str(model_filepath))
+    if not model_filepath.is_file():
+        print("No pre-trained model found. Training model...")
+        start = time.perf_counter()
+        model = lgb.train(params, train_set, fobj=fobj)
+        end = time.perf_counter()
+        t_train = (end - start)
+        joblib.dump(model, str(model_filepath))
+    else:
+        print("Loading pre-trained model")
+        model = joblib.load(str(model_filepath))
+        timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+        df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+        t_train = df_timings.loc[seed]["t_train"]
     # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
     dates = X.index.get_level_values(time_index).unique().sort_values()
     start = time.perf_counter()      
@@ -83,12 +91,20 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_Sc, df_St,
         # Set objective and metric functions
         params_level, fobj = set_objective(params_level, sobj)    
         # Train and save final model
-        start = time.perf_counter()
-        model = lgb.train(params_level, train_set, fobj=fobj)
-        end = time.perf_counter()
-        t_train += (end - start)
         model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_{level}_model_seed_{seed}.pkl")
-        joblib.dump(model, str(model_filepath))
+        if not model_filepath.is_file():
+            print("No pre-trained model found. Training model...")
+            start = time.perf_counter()
+            model = lgb.train(params_level, train_set, fobj=fobj)
+            end = time.perf_counter()
+            t_train += (end - start)
+            joblib.dump(model, str(model_filepath))
+        else:
+            print("Loading pre-trained model")
+            model = joblib.load(str(model_filepath))
+            timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+            df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+            t_train += df_timings.loc[seed]["t_train"]            
         # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
         dates = Xl.index.get_level_values(time_index).unique().sort_values()
         start = time.perf_counter()       
@@ -131,12 +147,20 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     # Set objective and metric functions
     params, fobj = set_objective(params, sobj, df_Sc_train, df_St_train, seed=seed)
     # Train and save model
-    start = time.perf_counter()
-    model = lgb.train(params, train_set, fobj=fobj)
-    end = time.perf_counter()
-    t_train = (end - start)    
     model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
-    joblib.dump(model, str(model_filepath))
+    if not model_filepath.is_file():
+        print("No pre-trained model found. Training model...")
+        start = time.perf_counter()
+        model = lgb.train(params, train_set, fobj=fobj)
+        end = time.perf_counter()
+        t_train = (end - start)    
+        joblib.dump(model, str(model_filepath))
+    else:
+        print("Loading pre-trained model")
+        model = joblib.load(str(model_filepath))
+        timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+        df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+        t_train = df_timings.loc[seed]["t_train"]
     # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
     Xb_test = Xb.drop(columns=[target]).loc[start_test:]
     test_dates = Xb_test.index.get_level_values(time_index).unique().sort_values()
@@ -179,7 +203,7 @@ def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
     
     return params, fobj
 
-def set_metric(params, seval, df_Sc, df_St):
+def set_metric(params, seval, df_Sc=None, df_St=None):
     # Set eval metric
     if seval is None or seval == 'l2':
         params['metric'] = 'l2'
@@ -187,13 +211,13 @@ def set_metric(params, seval, df_Sc, df_St):
     elif seval == 'hierarchical_eval_hmse':
         assert df_Sc is not None
         assert df_St is not None
-        params['metric'] = seval
+        params['metric'] = 'hierarchical_eval_hmse'
         df_St_bottom = df_St.loc['date']
         feval = HierarchicalLoss(df_Sc, df_St_bottom).metric
     elif seval == 'hierarchical_eval_hmse_withtemp':
         assert df_Sc is not None
         assert df_St is not None
-        params['metric'] = seval
+        params['metric'] = 'hierarchical_eval_hmse'
         feval = HierarchicalLoss(df_Sc, df_St).metric
     elif seval == 'tweedie':
         params['metric'] = 'tweedie'
