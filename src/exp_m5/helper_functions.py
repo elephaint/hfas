@@ -3,7 +3,7 @@ import numpy as np
 from scipy.sparse import csc_matrix, issparse
 from pathlib import Path
 #%% Read data
-def read_m5(first_date='2012-01-01', last_date='2016-05-22', store_level=True, store_id=0):
+def read_m5(first_date='2011-01-01', last_date='2016-05-22', store_level=True, store_id=0):
     directory = Path(__file__).parent
     filename = directory.joinpath('data/m5_dataset_products.parquet')
     df = pd.read_parquet(filename, 
@@ -92,8 +92,6 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
     df_other_cols[other_cols] = df_other_cols[other_cols].astype('category')
     df_other_cols = df_other_cols[~df_other_cols.index.duplicated()]
     X = X.join(df_other_cols, how='left')
-    # Retain last two years as training data
-    X = X.swaplevel(0, -1).loc['2013-01-01':].swaplevel(0, -1)
     # Dropnans
     X = X.dropna()
     # Save and reset index, add aggregation and value columns as categoricals

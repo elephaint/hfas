@@ -9,5 +9,4 @@ for path in current_path.glob('*.params'):
     params = joblib.load(path)
     # params = optuna.load_study(storage=str(path), study_name=None)
     # print(path.stem)
-    param_dict[path.stem] = params
-    print(params.best_trial)
+    param_dict[path.stem] = params.best_trial.user_attrs['best_iter']

@@ -3,35 +3,276 @@ import numpy as np
 import pandas as pd
 import optuna
 import joblib
+import time
 from pathlib import Path
-from src.lib import hierarchical_obj_se, hierarchical_eval_mse, hierarchical_obj_se_random
+from src.lib import HierarchicalLoss, RandomHierarchicalLoss
 from hierts.reconciliation import aggregate_bottom_up_forecasts
 from scipy.sparse import csc_matrix
 from lightgbm import early_stopping, log_evaluation
 from functools import partial
+CURRENT_PATH = Path(__file__).parent
+import warnings
+warnings.filterwarnings('ignore')
+#%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
+def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
+                    exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
+    # Set parameters
+    params['seed'] = seed
+    params['bagging_seed'] = seed
+    params['feature_fraction_seed'] = seed
+    # Create train set for cross-validation
+    y_train = X[target].loc[:end_train]
+    X_train = X.drop(columns=[target]).loc[:end_train]
+    # Tune if required
+    param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_best_params.params")
+    params = get_best_params(params, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+    # Create training set for final model
+    start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
+    y_train = X[target].loc[start_train:end_train]
+    X_train = X.drop(columns=[target]).loc[start_train:end_train]
+    train_set = lgb.Dataset(X_train, y_train)
+    # Set objective and metric functions
+    params, fobj = set_objective(params, sobj)    
+    # Train and save final model
+    model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
+    if not model_filepath.is_file():
+        print("No pre-trained model found. Training model...")
+        start = time.perf_counter()
+        model = lgb.train(params, train_set, fobj=fobj)
+        end = time.perf_counter()
+        t_train = (end - start)
+        joblib.dump(model, str(model_filepath))
+    else:
+        print("Loading pre-trained model")
+        model = joblib.load(str(model_filepath))
+        timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+        df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+        t_train = df_timings.loc[seed]["t_train"]
+    # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+    dates = X.index.get_level_values(time_index).unique().sort_values()
+    start = time.perf_counter()      
+    yhat = model.predict(X.drop(columns=[target]))
+    yhat = np.clip(yhat, 0, 1e9).astype('float32')
+    df_yhat = pd.Series(index=Xind, data=yhat)
+    forecasts = df_yhat.unstack([time_index]).loc[targets.index, dates]
+    end = time.perf_counter()
+    t_predict = (end - start)
+
+    return forecasts, t_train, t_predict
+
+#%% Setting 2: A separate model for each aggregation in the hierarchy
+def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
+                    exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
+    # Create parameter dict
+    params['seed'] = seed
+    params['bagging_seed'] = seed
+    params['feature_fraction_seed'] = seed
+    # Loop over aggregations
+    forecasts_levels = []
+    default_params = params.copy()
+    t_train, t_predict = 0.0, 0.0
+    for level in df_Sc.index.get_level_values('Aggregation').unique():
+        print(f'Training level: {level}')
+        params_level = default_params.copy()
+        # Only keep bottom-level timeseries
+        Xl_ind = pd.DataFrame(index=Xind).loc[level].index
+        Xl = X[X['Aggregation'] == level]
+        # Create train set for cross-validation
+        y_train = Xl[target].loc[:end_train]
+        X_train = Xl.drop(columns=[target]).loc[:end_train]
+        # Tune if required
+        param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_{level}_best_params.params")
+        params_level = get_best_params(params_level, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+        # Create training set for final model
+        start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
+        y_train = Xl[target].loc[start_train:end_train]
+        X_train = Xl.drop(columns=[target]).loc[start_train:end_train]
+        train_set = lgb.Dataset(X_train, y_train)    
+        # Set objective and metric functions
+        params_level, fobj = set_objective(params_level, sobj)    
+        # Train and save final model
+        model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_{level}_model_seed_{seed}.pkl")
+        if not model_filepath.is_file():
+            print("No pre-trained model found. Training model...")
+            start = time.perf_counter()
+            model = lgb.train(params_level, train_set, fobj=fobj)
+            end = time.perf_counter()
+            t_train += (end - start)
+            joblib.dump(model, str(model_filepath))
+        else:
+            print("Loading pre-trained model")
+            model = joblib.load(str(model_filepath))
+            timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+            df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+            t_train += df_timings.loc[seed]["t_train"]            
+        # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+        dates = Xl.index.get_level_values(time_index).unique().sort_values()
+        start = time.perf_counter()       
+        yhat = model.predict(Xl.drop(columns=[target]))
+        yhat = np.clip(yhat, 0, 1e9).astype('float32')
+        df_yhat = pd.Series(index=Xl_ind, data=yhat)
+        forecasts_level = df_yhat.unstack([time_index]).loc[targets.loc[level].index, dates]
+        forecasts_levels.append(pd.concat({f'{level}': forecasts_level}, names=['Aggregation']))
+        end = time.perf_counter()
+        t_predict += (end - start)
+
+    forecasts = pd.concat(forecasts_levels)
+
+    return forecasts, t_train, t_predict
+
+#%% Setting 3: A single global model that forecasts ONLY the bottom level timeseries, with temporal hierarchies added
+def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, name_bottom_timeseries, 
+                            df_Sc, df_St, exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
+    # Only keep bottom-level timeseries
+    Xb = X[X['Aggregation'] == name_bottom_timeseries]
+    # Create parameter dict
+    params['seed'] = seed
+    params['bagging_seed'] = seed
+    params['feature_fraction_seed'] = seed
+    params['n_bottom_timeseries'] = df_Sc.shape[1]
+    # Create train set for cross-validation
+    y_train = Xb[target].loc[:end_train]
+    X_train = Xb.drop(columns=[target]).loc[:end_train]
+    # Tune if required
+    param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_best_params.params")
+    params = get_best_params(params, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+    # Create training set for final model
+    start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
+    y_train = Xb[target].loc[start_train:end_train]
+    X_train = Xb.drop(columns=[target]).loc[start_train:end_train]
+    train_set = lgb.Dataset(X_train, y_train)
+    # Create St and Sc
+    df_St_train = df_St.loc[:, start_train:end_train]
+    df_Sc_train = df_Sc
+    # Set objective and metric functions
+    params, fobj = set_objective(params, sobj, df_Sc_train, df_St_train, seed=seed)
+    # Train and save model
+    model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
+    if not model_filepath.is_file():
+        print("No pre-trained model found. Training model...")
+        start = time.perf_counter()
+        model = lgb.train(params, train_set, fobj=fobj)
+        end = time.perf_counter()
+        t_train = (end - start)    
+        joblib.dump(model, str(model_filepath))
+    else:
+        print("Loading pre-trained model")
+        model = joblib.load(str(model_filepath))
+        timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
+        df_timings = pd.read_csv(str(timings_filepath), index_col=0)
+        t_train = df_timings.loc[seed]["t_train"]
+    # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+    Xb_test = Xb.drop(columns=[target]).loc[start_test:]
+    test_dates = Xb_test.index.get_level_values(time_index).unique().sort_values()
+    start = time.perf_counter()
+    yhat = model.predict(Xb_test)
+    yhat = np.clip(yhat, 0, 1e9).astype('float32')
+    df_yhat = pd.Series(index=Xb_test.reset_index().set_index(['Value', 'date']).index, data=yhat)
+    forecasts_bu_bottom_level = df_yhat.unstack([time_index]).loc[targets.loc[name_bottom_timeseries].index, test_dates]
+    # Aggregate bottom-up forecasts
+    forecasts_bu = aggregate_bottom_up_forecasts(forecasts_bu_bottom_level, df_Sc, name_bottom_timeseries)
+    end = time.perf_counter()
+    t_predict = (end - start)
+
+    return forecasts_bu, t_train, t_predict
+
+#%% Objective and metric helper functions
+def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
+    # Set objective
+    if sobj == None or sobj == 'l2':
+        params['objective'] = 'l2'
+        fobj = None
+    elif sobj == 'tweedie':
+        params['objective'] = 'tweedie'
+        fobj = None
+    elif sobj == 'hierarchical_obj_se':
+        assert df_Sc is not None
+        assert df_St is not None
+        params['objective'] = None
+        df_St_bottom = df_St.loc['date']
+        fobj = HierarchicalLoss(df_Sc, df_St_bottom).objective
+    elif sobj == 'hierarchical_obj_se_withtemp':
+        assert df_Sc is not None
+        assert df_St is not None
+        params['objective'] = None
+        fobj = HierarchicalLoss(df_Sc, df_St).objective
+    elif sobj == 'hierarchical_obj_se_random':
+        params['objective'] = None
+        params['flag_params_random_hierarchical_loss'] = True
+        fobj = RandomHierarchicalLoss(seed=seed).objective
+    
+    return params, fobj
+
+def set_metric(params, seval, df_Sc=None, df_St=None):
+    # Set eval metric
+    if seval is None or seval == 'l2':
+        params['metric'] = 'l2'
+        feval = None
+    elif seval == 'hierarchical_eval_hmse':
+        assert df_Sc is not None
+        assert df_St is not None
+        params['metric'] = 'hierarchical_eval_hmse'
+        df_St_bottom = df_St.loc['date']
+        feval = HierarchicalLoss(df_Sc, df_St_bottom).metric
+    elif seval == 'hierarchical_eval_hmse_withtemp':
+        assert df_Sc is not None
+        assert df_St is not None
+        params['metric'] = 'hierarchical_eval_hmse'
+        feval = HierarchicalLoss(df_Sc, df_St).metric
+    elif seval == 'tweedie':
+        params['metric'] = 'tweedie'
+        feval = None
+
+    return params, feval
 #%% Hyperparameter tuning helper functions
+def get_best_params(params, param_filepath, X, y, sobj, seval, df_Sc, df_St):
+    if params['tuning'] and not param_filepath.is_file():
+        # Create validation set
+        time_index = X.index.name
+        cv_iter = cv_iterator(X, 
+                                time_index, 
+                                params['n_validation_sets'], 
+                                params['n_days_test'], 
+                                params['n_years_train'] )
+        # Create Optuna study and run hyperparameter optimization
+        sampler = optuna.samplers.TPESampler(seed=params['seed'])
+        study = optuna.create_study(sampler=sampler, direction="minimize")
+        wrapped_opt_opjective = lambda trial: opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St)
+        study.optimize(wrapped_opt_opjective, n_trials=params['n_trials'])
+        joblib.dump(study, str(param_filepath))
+    # Load best parameters if they exist, else use default values
+    if param_filepath.is_file():
+        print('Using optimized params')
+        study = joblib.load(str(param_filepath))
+        params.update(study.best_params)
+        params['n_estimators'] = study.best_trial.user_attrs['best_iter']
+    else:
+        print('Using default params')
+    
+    return params
+
 # Cross-validation iterator
-def cv_iterator(X_val, time_index, n_splits=6, n_days_test=28):
-    indices = np.arange(X_val.shape[0])
-    date_max = X_val.index.get_level_values(time_index).max()
+def cv_iterator(X, time_index, n_splits=6, n_days_test=28, n_years_train=3):
+    indices = np.arange(X.shape[0])
+    date_max = X.index.get_level_values(time_index).max()
     indices_list = []
     for i in range(n_splits, 0, -1):
         date_end_train = date_max - pd.Timedelta(i * n_days_test, 'd')
-        date_start_train = date_end_train - pd.Timedelta(2 * 365, 'd')
+        date_start_train = date_end_train - pd.Timedelta(n_years_train * 366, 'd')
         date_start_test = date_end_train + pd.Timedelta(1, 'd')
         date_end_test = date_max - pd.Timedelta((i - 1) * n_days_test, 'd')
-        train_index_start = X_val.index.get_slice_bound(date_start_train, side='left')
-        train_index_end = X_val.index.get_slice_bound(date_end_train, side='right')
-        test_index_start = X_val.index.get_slice_bound(date_start_test, side='left')
-        test_index_end = X_val.index.get_slice_bound(date_end_test, side='right')
+        train_index_start = X.index.get_slice_bound(date_start_train, side='left')
+        train_index_end = X.index.get_slice_bound(date_end_train, side='right')
+        test_index_start = X.index.get_slice_bound(date_start_test, side='left')
+        test_index_end = X.index.get_slice_bound(date_end_test, side='right')
         train_index = indices[train_index_start:train_index_end]
         test_index = indices[test_index_start:test_index_end]
         indices_list.append((train_index, test_index))
-    
+
     return indices_list
 
 # Optuna study
-def opt_objective(trial, train_set, cv_iter, params, fobj, feval):
+def opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St):
     # Define trial params and add default_params
     trial_params = {
         'feature_pre_filter':False,
@@ -44,182 +285,51 @@ def opt_objective(trial, train_set, cv_iter, params, fobj, feval):
         'min_child_samples': trial.suggest_int('min_child_samples', 5, 5000, log=True),
     }
     trial_params.update(params)
-    if 'flag_params_random_hierarchical_loss' in params:
-        trial_params_random_loss = {
-            'max_levels_random': trial.suggest_int('max_levels_random', 2, 10),
-            'max_categories_per_random_level': trial.suggest_int('max_categories_per_random_level', 2, 1000),
-            'hier_freq': trial.suggest_int('hier_freq', 1, 10)
-        }
-        trial_params.update(trial_params_random_loss)
-    if params['objective'] == 'tweedie':
-        trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
-        trial_params.update(trial_params_tweedie)
-    # Perform cross-validation using walk-forward validation
-    cv_results = lgb.cv(trial_params,
-                        train_set, 
-                        num_boost_round=params['n_estimators'],
-                        folds=cv_iter,
-                        callbacks=[early_stopping(100), 
-                                log_evaluation(100)],
-                        fobj=fobj,
-                        feval=feval)  
+    best_score, best_iter = 0.0, 0
+    n_folds = len(cv_iter)
+    for train_index, val_index in cv_iter:
+        # Create train and validation sets
+        X_train, y_train = X.iloc[train_index], y.iloc[train_index]
+        X_val, y_val = X.iloc[val_index], y.iloc[val_index]
+        train_set = lgb.Dataset(X_train, y_train)
+        valid_set = lgb.Dataset(X_val, y_val)
+        # Create St and Sc
+        df_St_train = df_St.loc[:, X_train.index.min():X_train.index.max()]
+        df_St_val = df_St.loc[:, X_val.index.min():X_val.index.max()]
+        df_Sc_train = df_Sc
+        df_Sc_val = df_Sc
+        # Set objective and metric functions
+        trial_params, fobj = set_objective(trial_params, sobj, df_Sc_train, df_St_train)
+        trial_params, feval = set_metric(trial_params, seval, df_Sc_val, df_St_val)
+        # Set additional params for random hierarchical loss
+        if 'flag_params_random_hierarchical_loss' in params:
+            trial_params_random_loss = {
+                'max_levels_random': trial.suggest_int('max_levels_random', 2, 10),
+                'max_categories_per_random_level': trial.suggest_int('max_categories_per_random_level', 2, 1000),
+                'hier_freq': trial.suggest_int('hier_freq', 1, 10)
+            }
+            trial_params.update(trial_params_random_loss)
+        # Set additional params for tweedie loss
+        if trial_params['objective'] == 'tweedie':
+            trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
+            trial_params.update(trial_params_tweedie)
+        # Train model
+        model = lgb.train(params = trial_params,
+                          train_set = train_set, 
+                          valid_sets = [valid_set],
+                          num_boost_round = trial_params['n_estimators'],
+                          fobj=fobj,
+                          feval=feval,
+                          callbacks=[early_stopping(100), 
+                                     log_evaluation(100)],
+                          verbose_eval=False
+                          )
+        # Save best iteration and score
+        best_iter += (1 / n_folds) * model.best_iteration
+        best_score += (1 / n_folds) * model.best_score['valid_0'][trial_params['metric']]
+
     # Return best score, add best iteration to trial attributes
-    scores = cv_results[f"{trial_params['metric']}-mean"]
-    best_score = scores[-1]
-    trial.set_user_attr("best_iter", len(scores))
+    trial.set_user_attr("best_iter", int(best_iter))
 
     return best_score
 
-def get_best_params(params, param_filename, train_set, fobj, feval):
-    param_file = Path(param_filename)
-    if params['tuning'] and not param_file.is_file():
-        # Create validation set
-        time_index = train_set.data.index.name
-        cv_iter = cv_iterator(train_set.data, time_index, params['n_validation_sets'], params['n_days_test'])
-        # Create Optuna study and run hyperparameter optimization
-        sampler = optuna.samplers.TPESampler(seed=params['seed'])
-        study = optuna.create_study(sampler=sampler, direction="minimize")
-        wrapped_opt_opjective = lambda trial: opt_objective(trial, train_set, cv_iter, params, fobj, feval)
-        study.optimize(wrapped_opt_opjective, n_trials=params['n_trials'])
-        joblib.dump(study, param_filename)
-    # Load best parameters if they exist, else use default values
-    if param_file.is_file():
-        print('Using optimized params')
-        study = joblib.load(param_filename)
-        params.update(study.best_params)
-        params['n_estimators'] = study.best_trial.user_attrs['best_iter']
-    else:
-        print('Using default params')
-    
-    return params
-
-#%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
-def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
-                    exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
-    # Set parameters
-    params['seed'] = seed
-    params['bagging_seed'] = seed
-    params['feature_fraction_seed'] = seed
-    if fobj == None or fobj == 'l2':
-        params['objective'] = 'l2'
-        fobj = None
-    elif fobj == 'tweedie':
-        params['objective'] = 'tweedie'
-        fobj = None
-    params['metric'] = 'l2'
-    # Create train set
-    y_train = X[target].loc[:end_train]
-    X_train = X.drop(columns=[target]).loc[:end_train]
-    train_set = lgb.Dataset(X_train, y_train)
-    # Tune if required
-    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
-    params = get_best_params(params, param_filename, train_set, fobj, feval)
-    # Train & save model
-    model = lgb.train(params, train_set)
-    joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_model.pkl')
-    # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
-    yhat = model.predict(X.drop(columns=[target]))
-    yhat = np.clip(yhat, 0, 1e9).astype('float32')
-    df_yhat = pd.Series(index=Xind, data=yhat)
-    forecasts = df_yhat.unstack([time_index]).loc[targets.index, X.index.get_level_values(time_index).unique()]
-
-    return forecasts
-#%% Setting 2: A separate model for each aggregation in the hierarchy
-def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_S, 
-                    exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
-    # Create parameter dict
-    params['seed'] = seed
-    params['bagging_seed'] = seed
-    params['feature_fraction_seed'] = seed
-    if fobj == None or fobj == 'l2':
-        params['objective'] = 'l2'
-    elif fobj == 'tweedie':
-        params['objective'] = 'tweedie'
-    params['metric'] = 'l2'
-    # Loop over aggregations
-    forecasts_levels = []
-    default_params = params.copy()
-    for level in df_S.index.get_level_values('Aggregation').unique():
-        print(f'Training level: {level}')
-        params_level = default_params.copy()
-        # Only keep bottom-level timeseries
-        Xl_ind = pd.DataFrame(index=Xind).loc[level].index
-        Xl = X[X['Aggregation'] == level]
-        # Create train set
-        y_train = Xl[target].loc[:end_train]
-        X_train = Xl.drop(columns=[target]).loc[:end_train]
-        train_set = lgb.Dataset(X_train, y_train)    
-        # Tune if required
-        param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_best_params.params'
-        params_level = get_best_params(params_level, param_filename, train_set, fobj, feval)
-        # Train & save model
-        model = lgb.train(params_level, train_set)
-        joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_{level}_model.pkl')
-        # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
-        yhat = model.predict(Xl.drop(columns=[target]))
-        yhat = np.clip(yhat, 0, 1e9).astype('float32')
-        df_yhat = pd.Series(index=Xl_ind, data=yhat)
-        forecasts_level = df_yhat.unstack([time_index]).loc[targets.loc[level].index, Xl.index.get_level_values(time_index).unique()]
-        forecasts_levels.append(pd.concat({f'{level}': forecasts_level}, names=['Aggregation']))
-
-    forecasts = pd.concat(forecasts_levels)
-
-    return forecasts
-#%% Setting 3: A single global model that forecasts ONLY the bottom level timeseries
-def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, name_bottom_timeseries, 
-                            df_S, exp_name, exp_folder, params, fobj=None, feval=None, seed=0):
-    # Only keep bottom-level timeseries
-    Xb_ind = pd.DataFrame(index=Xind).loc[name_bottom_timeseries].index
-    Xb = X[X['Aggregation'] == name_bottom_timeseries]
-    # Convert df_S 
-    S = csc_matrix(df_S.sparse.to_coo())
-    # Create parameter dict
-    params['seed'] = seed
-    params['bagging_seed'] = seed
-    params['feature_fraction_seed'] = seed
-    # Set objective
-    if fobj == None or fobj == 'l2':
-        params['objective'] = 'l2'
-        fobj = None
-    elif fobj == 'tweedie':
-        params['objective'] = 'tweedie'
-        fobj = None
-    elif fobj == 'hierarchical_obj_se':
-        params['objective'] = None
-        fobj = partial(hierarchical_obj_se, S=S)
-    elif fobj == 'hierarchical_obj_se_random':
-        params['objective'] = None
-        params['flag_params_random_hierarchical_loss'] = True
-        fobj = partial(hierarchical_obj_se_random, S=S)
-    # Set eval metric
-    if feval is None or feval == 'l2':
-        params['metric'] = 'l2'
-        feval = None
-    elif feval == 'hierarchical_eval_hmse':
-        params['metric'] = feval
-        feval = partial(hierarchical_eval_mse, S=S)
-    elif feval == 'tweedie':
-        params['metric'] = 'tweedie'
-        feval = None
-    # Create train set
-    y_train = Xb[target].loc[:end_train]
-    X_train = Xb.drop(columns=[target]).loc[:end_train]
-    # Add attributes for hierarchical loss
-    train_set = lgb.Dataset(X_train, y_train)
-    params['n_levels'] = Xind.get_level_values('Aggregation').nunique()
-    params['n_bottom_timeseries'] = S.shape[1]
-    # Tune if required
-    param_filename = f'./src/exp_m5/{exp_folder}/{exp_name}_best_params.params'
-    params = get_best_params(params, param_filename, train_set, fobj, feval)
-    # Train & save model
-    model = lgb.train(params, train_set, fobj=fobj)
-    joblib.dump(model, f'./src/exp_m5/{exp_folder}/{exp_name}_model.pkl')
-    # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
-    yhat = model.predict(Xb.drop(columns=[target]))
-    yhat = np.clip(yhat, 0, 1e9).astype('float32')
-    df_yhat = pd.Series(index=Xb_ind, data=yhat)
-    forecasts_bu_bottom_level = df_yhat.unstack([time_index]).loc[targets.loc[name_bottom_timeseries].index, Xb.index.get_level_values(time_index).unique()]
-    # Aggregate bottom-up forecasts
-    forecasts_bu = aggregate_bottom_up_forecasts(forecasts_bu_bottom_level, df_S, name_bottom_timeseries)
-
-    return forecasts_bu
