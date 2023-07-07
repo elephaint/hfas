@@ -27,29 +27,21 @@ df_S = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, 
 aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregations for col in cols]))
 _, _, targets = create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0)
 #%% Load experimental results
-# folder = './src/exp_m5/exp2_allstores/lower_learningrate'
-folder = './src/exp_m5/exp2_allstores/lr_0.05'
-
+folder = './src/exp_m5/exp2_allstores/lr0.05'
 experiments = [ 
-                # 'globalall_objse_evalmse', 
+                'globalall_objse_evalmse', 
                 'bu_objmse_evalmse',
-                'bu_objmse_evalhmse', 
-                'bu_objhse_evalhmse', 
-                'bu_objhse_evalmse',
-                'bu_objtweedie_evalhmse',
-                'bu_objtweedie_evalmse', 
+                # 'bu_objmse_evalhmse', 
+                # 'bu_objtweedie_evalmse', 
+                # 'bu_objtweedie_evalhmse',
                 # 'bu_objtweedie_evaltweedie',
-                # 'bu_objhse_evalhmse_moreiters', 
-                # 'bu_objhse_evalhmse_nofeaturefraction', 
-                # 'bu_objhse_evalhmse_mildfeaturefraction', 
-                # 'bu_objhse_evalhmse_nobagging',
-                'bu_objrhse_evalhmse',
+                # 'bu_objhse_evalhmse', 
+                # 'bu_objhse_evalmse',
+                # 'bu_objrhse_evalhmse',
                 # 'bu_objrhse_evalmse',
-                'sepagg_objse_evalmse'
+                # 'sepagg_objse_evalmse'
                 ]
-
 base='bu_objmse_evalmse'
-# base = 'base'
 # Load results
 df_result = pd.DataFrame()
 for experiment in experiments:
@@ -65,7 +57,9 @@ df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate rmse per seed
 rmse = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-scenarios = ['sepagg', 'bu']
+# scenarios = ['globalall', 'sepagg', 'bu']
+scenarios = ['globalall', 'bu']
+
 for scenario in scenarios:
     for seed in seeds:
         df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]
@@ -82,7 +76,6 @@ rmse_std = rmse_std.unstack(0).T.swaplevel(0, 1).sort_index(level=0).dropna()
 #%% Save
 rmse_mean.to_csv(f'{folder}/rmse_lgbm_hier.csv')
 rmse_std.to_csv(f'{folder}/rmse_std_lgbm_hier.csv')
-# rel_rmse.to_csv(f'{folder}/rel_rmse_lgbm_hier.csv')
 #%% Variance plot
 import seaborn as sns
 import matplotlib.pyplot as plt

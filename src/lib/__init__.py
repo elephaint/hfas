@@ -1,1 +1,1 @@
-from .hierarchical_loss import HierarchicalLoss, RandomHierarchicalLoss
+from .hierarchical_loss import prepare_HierarchicalLoss, HierarchicalLossObjective, HierarchicalLossMetric, RandomHierarchicalLossObjective

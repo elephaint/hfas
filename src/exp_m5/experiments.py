@@ -4,14 +4,16 @@ import pandas as pd
 import optuna
 import joblib
 import time
+import warnings
+import sys
 from pathlib import Path
-from src.lib import HierarchicalLoss, RandomHierarchicalLoss
+CURRENT_PATH = Path(__file__).parent
+sys.path.append(str(CURRENT_PATH.parents[2]))
 from hierts.reconciliation import aggregate_bottom_up_forecasts
 from scipy.sparse import csc_matrix
 from lightgbm import early_stopping, log_evaluation
 from functools import partial
-CURRENT_PATH = Path(__file__).parent
-import warnings
+from src.lib import prepare_HierarchicalLoss, HierarchicalLossObjective, HierarchicalLossMetric, RandomHierarchicalLossObjective
 warnings.filterwarnings('ignore')
 #%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
 def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
@@ -189,18 +191,29 @@ def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
         assert df_Sc is not None
         assert df_St is not None
         params['objective'] = None
-        df_St_bottom = df_St.loc['date']
-        fobj = HierarchicalLoss(df_Sc, df_St_bottom).objective
+        n_bottom_timeseries = df_Sc.shape[1]
+        n_bottom_timesteps = df_St.shape[1]
+        hessian, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
+                                                                n_bottom_timesteps, 
+                                                                df_Sc)
+        fobj = partial(HierarchicalLossObjective, hessian=hessian, denominator=denominator, Sc=Sc)
     elif sobj == 'hierarchical_obj_se_withtemp':
         assert df_Sc is not None
         assert df_St is not None
         params['objective'] = None
-        fobj = HierarchicalLoss(df_Sc, df_St).objective
+        n_bottom_timeseries = df_Sc.shape[1]
+        n_bottom_timesteps = df_St.shape[1]
+        hessian, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
+                                                                n_bottom_timesteps,
+                                                                df_Sc, 
+                                                                df_St)
+        fobj = partial(HierarchicalLossObjective, hessian=hessian, denominator=denominator, Sc=Sc, St=St)
     elif sobj == 'hierarchical_obj_se_random':
         params['objective'] = None
         params['flag_params_random_hierarchical_loss'] = True
-        fobj = RandomHierarchicalLoss(seed=seed).objective
-    
+        rng = np.random.default_rng(seed=seed)
+        fobj = partial(RandomHierarchicalLossObjective, rng)
+
     return params, fobj
 
 def set_metric(params, seval, df_Sc=None, df_St=None):
@@ -212,13 +225,23 @@ def set_metric(params, seval, df_Sc=None, df_St=None):
         assert df_Sc is not None
         assert df_St is not None
         params['metric'] = 'hierarchical_eval_hmse'
-        df_St_bottom = df_St.loc['date']
-        feval = HierarchicalLoss(df_Sc, df_St_bottom).metric
+        n_bottom_timeseries = df_Sc.shape[1]
+        n_bottom_timesteps = df_St.shape[1]
+        _, denominator, Sc, _ = prepare_HierarchicalLoss(n_bottom_timeseries, 
+                                                         n_bottom_timesteps, 
+                                                         df_Sc)
+        feval = partial(HierarchicalLossMetric, denominator=denominator, Sc=Sc)
     elif seval == 'hierarchical_eval_hmse_withtemp':
         assert df_Sc is not None
         assert df_St is not None
         params['metric'] = 'hierarchical_eval_hmse'
-        feval = HierarchicalLoss(df_Sc, df_St).metric
+        n_bottom_timeseries = df_Sc.shape[1]
+        n_bottom_timesteps = df_St.shape[1]
+        _, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
+                                                          n_bottom_timesteps, 
+                                                          df_Sc,
+                                                          df_St)
+        feval = partial(HierarchicalLossMetric, denominator=denominator, Sc=Sc, St=St)
     elif seval == 'tweedie':
         params['metric'] = 'tweedie'
         feval = None

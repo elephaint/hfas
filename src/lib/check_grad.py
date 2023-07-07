@@ -37,7 +37,7 @@ temporal_aggregations = [['year'],
                          ['year', 'week']]
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 #%% Create target
-aggregation_cols = list(set([col for cols in aggregations for col in cols]))
+aggregation_cols = list(dict.fromkeys([col for cols in aggregations for col in cols]))
 bottom_timeseries = pd.DataFrame(index=df_Sc.columns.str.split(pat='-',expand=True).set_names(aggregation_cols)).reset_index()
 bottom_timeseries[aggregation_cols] = bottom_timeseries[aggregation_cols].astype('int')
 bottom_timeseries['bottom_timeseries'] = bottom_timeseries[aggregation_cols].astype(str).agg('-'.join, axis=1)
@@ -53,12 +53,14 @@ def hierarchical_eval_se(yhat_bottom, y, S, n_levels):
     
     return  anp.sum(loss)
 
-def hierarchical_eval_se_new(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t):
+def hierarchical_eval_se_new(yhat_bottom, y_bottom, Sc, St, n_levels_c, n_levels_t):
     # Compute predictions for all aggregations
-    yhat = (Sc @ yhat_bottom.reshape(-1, Sc.shape[1]).T @ St)
+    # yhat = (Sc @ yhat_bottom.reshape(-1, Sc.shape[1]).T @ St)
+    error = yhat_bottom - y_bottom
+    error_agg = (Sc @ (error @ St))
     denominator_c = n_levels_c * anp.sum(Sc, axis=1, keepdims=True)
     denominator_t = n_levels_t * anp.sum(St, axis=0, keepdims=True)
-    loss = anp.sum(0.5 * anp.square(y - yhat) / (denominator_c @ denominator_t))
+    loss = anp.sum(0.5 * anp.square(error_agg) / (denominator_c @ denominator_t))
     
     return  anp.sum(loss)
 
@@ -79,7 +81,7 @@ def hierarchical_obj_se2(yhat_bottom, y, S, n_levels):
 
     return gradient, hessian
 
-def hierarchical_obj_se_new(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t):
+def hierarchical_obj_se_new(yhat_bottom, y_bottom, Sc, St, n_levels_c, n_levels_t):
     # Address discrepancy in the output and workings of np.sum with sparse vs dense arrays
     if issparse(Sc):
         denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
@@ -89,21 +91,25 @@ def hierarchical_obj_se_new(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t):
         denominator_t = 1 / (n_levels_t * np.sum(St, axis=0, keepdims=True))
     # Compute predictions for all aggregations
     yhat_bottom_reshaped = yhat_bottom.astype(Sc.dtype).reshape(-1, Sc.shape[1]).T
-    yhat = (Sc @ yhat_bottom_reshaped @ St)
+    error = yhat_bottom_reshaped - y_bottom
+    # yhat = (Sc @ (yhat_bottom_reshaped @ St))
     denominator = denominator_c @ denominator_t
-    gradient_agg = (yhat - y) * denominator
-    gradient = (Sc.T @ gradient_agg @ St.T).T.reshape(-1)
-    hessian = (Sc.T @ denominator @ St.T).T.reshape(-1)
+    # gradient_agg = (yhat - y) * denominator
+    gradient_agg = Sc @ (error @ St) * denominator
+    gradient = ((Sc.T @ gradient_agg) @ St.T).T
+    hessian = ((Sc.T @ denominator) @ St.T).T
 
     return gradient, hessian
 #%% Check grad new
 rng = np.random.default_rng(seed=0)
 # S = df_S.sparse.to_dense().values.astype('float64')
-# Sc = df_Sc.sparse.to_coo()
-Sc = df_Sc.values.astype('float64')
-# St = df_St.T.sparse.to_coo()
-St = df_St.values.astype('float64').T
-
+Sc = df_Sc.sparse.to_coo().tocsr()
+# Sc = df_Sc.values.astype('float64')
+St = df_St.T.sparse.to_coo().tocsr()
+# St = df_St.values.astype('float64').T
+# targets = csc_matrix(df_target.T.values)
+#%%
+y_bottom = df_target.T.values 
 y = (Sc @ df_target.T.values @ St).astype('float64')
 n_levels_c = df_Sc.index.get_level_values('Aggregation').nunique()
 n_levels_t = df_St.index.get_level_values('Aggregation').nunique()
@@ -111,9 +117,9 @@ n_levels_t = df_St.index.get_level_values('Aggregation').nunique()
 yhat_bottom = np.random.rand(Sc.shape[1] * St.shape[0])
 
 grad_hierarchical_se = grad(hierarchical_eval_se_new)
-gradient = grad_hierarchical_se(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t)
-gradient_exact, hessian_exact = hierarchical_obj_se_new(yhat_bottom, y, Sc, St, n_levels_c, n_levels_t)
-assert np.allclose(gradient, gradient_exact)
+gradient = grad_hierarchical_se(yhat_bottom.reshape(-1, Sc.shape[1]).T, y_bottom, Sc, St, n_levels_c, n_levels_t)
+gradient_exact, hessian_exact = hierarchical_obj_se_new(yhat_bottom, y_bottom, Sc, St, n_levels_c, n_levels_t)
+assert np.allclose(gradient, gradient_exact.T)
 # auto_hessian = np.zeros(gradient.shape[0])
 # eps = 1e-9
 # S = df_S.sparse.to_coo()
@@ -126,6 +132,44 @@ assert np.allclose(gradient, gradient_exact)
 #     if i == 10:
 #         break
 # assert np.allclose(hessian_exact, auto_hessian)
+#%%
+import sparse_dot_mkl
+dot_product = sparse_dot_mkl.dot_product_mkl
+
+
+def mkl_product(Sc, targets, St):
+
+    return dot_product(dot_product(Sc, targets), St)
+
+
+
+#%%
+from scipy import sparse
+from numba import njit
+
+@njit
+def print_csr(A, iA, jA):
+    for row in range(len(iA)-1):
+        for i in range(iA[row], iA[row+1]):
+            print(row, jA[i], A[i])
+
+# @njit
+# def matmul(A, iA, jA, B, iB, jB):
+#     for row in range(len(iA)-1):
+#         for row in range(len(iB)-1):
+#             for i in range(iA[row], iA[row+1]):
+#                 print(row, jA[i], A[i])            
+
+A = sparse.csr_matrix([[1, 2, 0], [0, 0, 3], [4, 0, 5], [0, 0, 1]])
+B = sparse.csr_matrix([[1, 2], [0, 0], [4, 0]])
+matmul(A.data, A.indptr, A.indices, B.data, B.indptr, B.indices)
+Acoo, Bcoo = A.tocoo(), B.tocoo()
+
+def matmul(A, B):
+    C = np.array((A.shape[0], B.shape[1]))
+    for a in range(A.nnz):
+        for b in range(B.nnz):
+
 
 
 #%%

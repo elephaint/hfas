@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from scipy.sparse import csc_matrix, issparse
 from pathlib import Path
 #%% Read data
 def read_m5(first_date='2011-01-01', last_date='2016-05-22', store_level=True, store_id=0):
@@ -32,7 +31,7 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
     # Create target df
     if hasattr(df_S, "sparse"):
         print("S is sparse")
-        S = csc_matrix(df_S.sparse.to_coo())
+        S = df_S.sparse.to_coo().tocsc()
     else:
         print("S is dense")
         S = df_S.values
