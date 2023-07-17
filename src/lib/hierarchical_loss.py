@@ -2,6 +2,7 @@
 import numpy as np
 from scipy.sparse import csc_matrix, vstack, eye, issparse
 # Use sparse-dot-mkl for speed-up if available
+# Install: conda install -c conda-forge sparse_dot_mkl
 try:
     import sparse_dot_mkl
     dot_product = sparse_dot_mkl.dot_product_mkl
@@ -44,40 +45,47 @@ def prepare_HierarchicalLoss(n_bottom_timeseries, n_bottom_timesteps,
     # Compute denominator and hessian
     denominator = denominator_c @ denominator_t
     hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
+    Scd = Sc.multiply(denominator_c).tocsr()
+    Std = St.multiply(denominator_t).tocsr()
 
-    return hessian, denominator, Sc, St
+    return hessian, denominator, Sc, Scd, St, Std
 
-def HierarchicalLossObjective(preds, train_data, hessian, denominator, Sc=None, St=None):
+def HierarchicalLossObjective(preds, train_data, hessian,  
+                              n_bottom_timeseries, n_bottom_timesteps, rng, 
+                              Sc=None, Scd=None, St=None, Std=None):
     assert (Sc is not None or St is not None), "Sc, St or both should be provided"
     # Bottom ground-truth and predictions, flattened
     y_bottom_flat = train_data.get_label()
     yhat_bottom_flat = preds.astype(y_bottom_flat.dtype)
+    # Draw random number
+    number = rng.uniform()
     # Bottom ground-truth and predictions, reshaped
-    yhat_bottom = yhat_bottom_flat.reshape(-1, Sc.shape[1]).T
-    y_bottom = y_bottom_flat.reshape(-1, Sc.shape[1]).T
+    yhat_bottom = yhat_bottom_flat.reshape(-1, n_bottom_timeseries).T
+    y_bottom = y_bottom_flat.reshape(-1, n_bottom_timeseries).T
     # Compute bottom level error
     error = (yhat_bottom - y_bottom)
     # Compute aggregated gradients and convert back to bottom-level
     if Sc is None:
-        gradient_agg = dot_product(error, St) * denominator
+        gradient_agg = dot_product(error, Std)
         gradient = dot_product(gradient_agg, St.T).T.reshape(-1)
     elif St is None:
-        gradient_agg = dot_product(Sc, error) * denominator
-        gradient = dot_product(Sc.T, gradient_agg).T.reshape(-1)
+        gradient_agg = dot_product(Scd, error)
+        gradient = dot_product(gradient_agg.T, Sc).reshape(-1)
     else:
-        gradient_agg = dot_product(Sc, dot_product(error, St)) * denominator
-        gradient = dot_product(dot_product(Sc.T, gradient_agg), St.T).T.reshape(-1)
+        gradient_agg = dot_product(Scd, dot_product(error, Std))
+        gradient = dot_product(Sc.T, dot_product(gradient_agg, St.T)).T.reshape(-1)
 
     return gradient, hessian    
 
-def HierarchicalLossMetric(preds, eval_data, denominator, Sc=None, St=None):
+def HierarchicalLossMetric(preds, eval_data, denominator, 
+                           n_bottom_timeseries, n_bottom_timesteps, Sc=None, St=None):
     assert (Sc is not None or St is not None), "Sc, St or both should be provided"
     # Bottom ground-truth and predictions, flattened
     y_bottom_flat = eval_data.get_label()
     yhat_bottom_flat = preds.astype(y_bottom_flat.dtype)
     # Bottom ground-truth and predictions, reshaped
-    yhat_bottom = yhat_bottom_flat.reshape(-1, Sc.shape[1]).T
-    y_bottom = y_bottom_flat.reshape(-1, Sc.shape[1]).T
+    yhat_bottom = yhat_bottom_flat.reshape(-1, n_bottom_timeseries).T
+    y_bottom = y_bottom_flat.reshape(-1, n_bottom_timeseries).T
     # Compute error for all aggregations
     error = (yhat_bottom - y_bottom)
     if Sc is None:
@@ -91,19 +99,12 @@ def HierarchicalLossMetric(preds, eval_data, denominator, Sc=None, St=None):
     
     return 'hierarchical_eval_hmse', np.sum(loss) / len(preds), False
 
-def RandomHierarchicalLossObjective(preds, train_data, rng):
-    # Get required fields
-    assert 'n_bottom_timeseries' in train_data.params, 'Train data should contain parameter n_bottom_timeseries, the number of bottom timeseries in the hierarchy'   
-    assert 'max_levels_random' in train_data.params, 'Train data should contain the parameter max_levels_random'
-    assert 'max_categories_per_random_level' in train_data.params, 'Train data should contain the parameter max_categories_per_random_level'
-    assert 'hier_freq' in train_data.params, 'Train data should contain the parameter hier_freq, the frequency of using the random hierarchical loss'
+def RandomHierarchicalLossObjective(preds, train_data, rng, n_bottom_timeseries, 
+                                    max_levels_random, max_categories_per_random_level,
+                                    hier_freq):
     # Draw random number
     number = rng.uniform()
-    if number < (1 / train_data.params['hier_freq']):
-        # Get data
-        n_bottom_timeseries = train_data.params['n_bottom_timeseries']
-        max_levels_random = np.maximum(train_data.params['max_levels_random'], 1)
-        max_categories_per_random_level = np.maximum(train_data.params['max_categories_per_random_level'], 2)
+    if number < (1 / hier_freq):
         # Create random aggregations
         ones = np.ones(n_bottom_timeseries, dtype=np.float32)
         idx_range = np.arange(n_bottom_timeseries)
@@ -119,20 +120,21 @@ def RandomHierarchicalLossObjective(preds, train_data, rng):
         S_top = csc_matrix(ones, dtype=np.float32)
         S_bottom = eye(n_bottom_timeseries, dtype=np.float32)
         # Construct S: stack top, aggregations and bottom 
-        S = vstack([S_top, S_aggs, S_bottom])
-        # Calculate gradient and hessian
-        denominator = 1 / ((n_levels_random + 2) * np.sum(S, axis=1)).A
+        S = vstack([S_top, S_aggs, S_bottom]).tocsc()
         # Compute predictions for all aggregations
-        yhat_bottom = preds.astype(S.dtype).reshape(-1, S.shape[1]).T
-        y_bottom = train_data.get_label().astype(S.dtype).reshape(-1, S.shape[1]).T
-        error = dot_product(S, (yhat_bottom - y))
-        # Compute gradients for all aggregations
-        gradient_agg = error * denominator
-        # Convert gradients back to bottom-level series
-        gradient = dot_product(gradient_agg.T, S).reshape(-1)
-        hessian_step = np.asarray(np.sum(S.T.multiply(denominator.T), axis=1)).T
-        # hessian = hessian_step.repeat(gradient_agg.shape[1], -1).reshape(-1)
-        hessian = hessian_step.repeat(gradient_agg.shape[1], axis=0).reshape(-1)
+        yhat_bottom = preds.astype(np.float32).reshape(-1, S.shape[1]).T
+        y_bottom = train_data.get_label().astype(np.float32).reshape(-1, S.shape[1]).T
+        # Calculate denominator
+        n_bottom_timesteps = yhat_bottom.shape[1]
+        denominator_c = 1 / ((n_levels_random + 2) * np.sum(S, axis=1)).A
+        denominator_t = np.full((1, n_bottom_timesteps), fill_value=1, dtype=np.float32)
+        denominator = dot_product(denominator_c, denominator_t)
+        # Compute bottom level error
+        error = (yhat_bottom - y_bottom)
+        # Compute aggregated gradients and convert back to bottom-level
+        gradient_agg = dot_product(S, error) * denominator
+        gradient = dot_product(S.T, gradient_agg).T.reshape(-1)
+        hessian = dot_product(S.T, denominator).T.reshape(-1)
     else:
         gradient = (preds - train_data.get_label())
         hessian = np.ones_like(gradient)

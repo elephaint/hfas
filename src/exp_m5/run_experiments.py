@@ -3,35 +3,30 @@ import pandas as pd
 from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
-import sys
-sys.path.append(str(CURRENT_PATH.parents[2]))
-from src.exp_m5 import read_m5, create_forecast_set, exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
-#%% Set aggregations and target
-cross_sectional_aggregations = [['state_id_enc'],
-                                ['store_id_enc'],
-                                ['cat_id_enc'],
-                                ['dept_id_enc'],
-                                ['state_id_enc', 'cat_id_enc'],
-                                ['state_id_enc', 'dept_id_enc'],
-                                ['store_id_enc', 'cat_id_enc'],
-                                ['store_id_enc', 'dept_id_enc'],
-                                ['item_id_enc'],
-                                ['item_id_enc', 'state_id_enc']]
-temporal_aggregations = [['year'],
-                         ['year', 'month'],
-                         ['year', 'week']]
+from helper_functions import read_m5, get_aggregations, create_forecast_set
+from experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
+#%% Set experiment parameters
+store_level = True
+# store_level = False
+store_id = 0
+learning_rate = 0.1
+if store_level:
+    exp_folder = f"exp1_storeid={store_id}/lr{learning_rate}/test"
+else:
+    exp_folder = f"exp2_allstores/lr{learning_rate}"
+assert CURRENT_PATH.joinpath(exp_folder).is_dir()
+cross_sectional_aggregations, temporal_aggregations = get_aggregations(store_level)
 time_index = 'date'
 target = 'sales'
 name_bottom_timeseries = 'products'
 end_train = '2016-04-24'
 start_test = '2016-04-25'
 # Other experiment settings
-exp_folder = 'exp2_allstores'
 n_seeds = 10
 default_params = {'seed': 0,
                   'n_estimators': 2000,
                   'n_trials': 100,
-                  'learning_rate': 0.05,
+                  'learning_rate': learning_rate,
                   'verbosity': -1,
                   'tuning': True,
                   'n_validation_sets': 3,
@@ -40,7 +35,7 @@ default_params = {'seed': 0,
                   'n_days_test': 28,
                   'n_years_train': 3}
 #%% Read data
-df = read_m5(store_level=False)
+df = read_m5(store_level=store_level, store_id=store_id)
 # Add columns for temporal hierarchies
 df['week'] = df['date'].dt.isocalendar().week
 df['year'] = df['date'].dt.year
@@ -48,6 +43,8 @@ df['month'] = df['date'].dt.month
 df['day'] = df['date'].dt.day
 # Calculate cross-sectional and temporal hierarchy summing matrices
 df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
+if store_level:
+    df_Sc = df_Sc.drop('item_id_enc') 
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 # Create forecast set
 aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregations for col in cols]))
@@ -110,32 +107,35 @@ for experiment in experiments_agg:
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
                     {'exp_name':'bu_objmse_evalmse',
-                    'fobj':'l2',
-                    'feval':'l2'},
-#                     {'exp_name':'bu_objmse_evalhmse',
-#                     'fobj':'l2',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objtweedie_evalmse',
-#                     'fobj':'tweedie',
-#                     'feval':'l2'},
-#                     {'exp_name':'bu_objtweedie_evalhmse',
-#                     'fobj':'tweedie',
-#                     'feval': 'hierarchical_eval_hmse'},
-#                     {'exp_name':'bu_objtweedie_evaltweedie',
-#                     'fobj':'tweedie',
-#                     'feval': 'tweedie'},
+                    'sobj':'l2',
+                    'seval':'l2'},
+                    {'exp_name':'bu_objmse_evalhmse',
+                    'sobj':'l2',
+                    'seval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objtweedie_evalmse',
+                    'sobj':'tweedie',
+                    'seval':'l2'},
+                    {'exp_name':'bu_objtweedie_evalhmse',
+                    'sobj':'tweedie',
+                    'seval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objtweedie_evaltweedie',
+                    'sobj':'tweedie',
+                    'seval': 'tweedie'},
                     {'exp_name':'bu_objhse_evalhmse',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
+                    'sobj': 'hierarchical_obj_se',
+                    'seval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objhse_evalmse',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'l2'},
+                    'sobj': 'hierarchical_obj_se',
+                    'seval': 'l2'},
                     {'exp_name':'bu_objrhse_evalhmse',
-                    'fobj': 'hierarchical_obj_se_random',
-                    'feval': 'hierarchical_eval_hmse'},
+                    'sobj': 'hierarchical_obj_se_random',
+                    'seval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objhse_evalhmse_withtemp',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
+                    'sobj': 'hierarchical_obj_se',
+                    'seval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objhse_evalhmse_withtemponly',
+                    'sobj': 'hierarchical_obj_se',
+                    'seval': 'hierarchical_eval_hmse'},
                     ]
 # # We loop over all the experiments and create forecasts for n_seeds
 for experiment in experiments_bu:
@@ -143,8 +143,8 @@ for experiment in experiments_bu:
     df_result_timings = pd.DataFrame()
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
-        sobj = experiment['fobj']
-        seval = experiment['feval']
+        sobj = experiment['sobj']
+        seval = experiment['seval']
         params = default_params.copy()
         forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, 
                                                 name_bottom_timeseries, df_Sc, df_St, exp_folder=exp_folder,

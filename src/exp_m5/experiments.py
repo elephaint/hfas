@@ -27,14 +27,14 @@ def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_
     X_train = X.drop(columns=[target]).loc[:end_train]
     # Tune if required
     param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_best_params.params")
-    params = get_best_params(params, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+    params = get_best_params(params, param_filepath, X_train, y_train, exp_name, sobj, seval, df_Sc, df_St)
     # Create training set for final model
     start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
     y_train = X[target].loc[start_train:end_train]
     X_train = X.drop(columns=[target]).loc[start_train:end_train]
     train_set = lgb.Dataset(X_train, y_train)
     # Set objective and metric functions
-    params, fobj = set_objective(params, sobj)    
+    params, fobj = set_objective(params, exp_name, sobj)    
     # Train and save final model
     model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
     if not model_filepath.is_file():
@@ -84,14 +84,14 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, df_Sc, df_St,
         X_train = Xl.drop(columns=[target]).loc[:end_train]
         # Tune if required
         param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_{level}_best_params.params")
-        params_level = get_best_params(params_level, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+        params_level = get_best_params(params_level, param_filepath, X_train, y_train, exp_name, sobj, seval, df_Sc, df_St)
         # Create training set for final model
         start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
         y_train = Xl[target].loc[start_train:end_train]
         X_train = Xl.drop(columns=[target]).loc[start_train:end_train]
         train_set = lgb.Dataset(X_train, y_train)    
         # Set objective and metric functions
-        params_level, fobj = set_objective(params_level, sobj)    
+        params_level, fobj = set_objective(params_level, exp_name, sobj)    
         # Train and save final model
         model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_{level}_model_seed_{seed}.pkl")
         if not model_filepath.is_file():
@@ -137,7 +137,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     X_train = Xb.drop(columns=[target]).loc[:end_train]
     # Tune if required
     param_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_best_params.params")
-    params = get_best_params(params, param_filepath, X_train, y_train, sobj, seval, df_Sc, df_St)
+    params = get_best_params(params, param_filepath, X_train, y_train, exp_name, sobj, seval, df_Sc, df_St)
     # Create training set for final model
     start_train = pd.Timestamp(end_train) - pd.Timedelta(params['n_years_train'] * 366, 'd')
     y_train = Xb[target].loc[start_train:end_train]
@@ -147,7 +147,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     df_St_train = df_St.loc[:, start_train:end_train]
     df_Sc_train = df_Sc
     # Set objective and metric functions
-    params, fobj = set_objective(params, sobj, df_Sc_train, df_St_train, seed=seed)
+    params, fobj = set_objective(params, exp_name, sobj, df_Sc_train, df_St_train, seed=seed)
     # Train and save model
     model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
     if not model_filepath.is_file():
@@ -163,7 +163,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
         timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
         df_timings = pd.read_csv(str(timings_filepath), index_col=0)
         t_train = df_timings.loc[seed]["t_train"]
-    # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
+    # Make predictions for both train and test set
     Xb_test = Xb.drop(columns=[target]).loc[start_test:]
     test_dates = Xb_test.index.get_level_values(time_index).unique().sort_values()
     start = time.perf_counter()
@@ -179,7 +179,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     return forecasts_bu, t_train, t_predict
 
 #%% Objective and metric helper functions
-def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
+def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
     # Set objective
     if sobj == None or sobj == 'l2':
         params['objective'] = 'l2'
@@ -191,32 +191,48 @@ def set_objective(params, sobj, df_Sc=None, df_St=None, seed=0):
         assert df_Sc is not None
         assert df_St is not None
         params['objective'] = None
-        n_bottom_timeseries = df_Sc.shape[1]
-        n_bottom_timesteps = df_St.shape[1]
-        hessian, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
-                                                                n_bottom_timesteps, 
-                                                                df_Sc)
-        fobj = partial(HierarchicalLossObjective, hessian=hessian, denominator=denominator, Sc=Sc)
-    elif sobj == 'hierarchical_obj_se_withtemp':
-        assert df_Sc is not None
-        assert df_St is not None
-        params['objective'] = None
-        n_bottom_timeseries = df_Sc.shape[1]
-        n_bottom_timesteps = df_St.shape[1]
-        hessian, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
-                                                                n_bottom_timesteps,
-                                                                df_Sc, 
-                                                                df_St)
-        fobj = partial(HierarchicalLossObjective, hessian=hessian, denominator=denominator, Sc=Sc, St=St)
-    elif sobj == 'hierarchical_obj_se_random':
-        params['objective'] = None
-        params['flag_params_random_hierarchical_loss'] = True
         rng = np.random.default_rng(seed=seed)
-        fobj = partial(RandomHierarchicalLossObjective, rng)
+        n_bottom_timeseries = df_Sc.shape[1]
+        n_bottom_timesteps = df_St.shape[1]
+        if exp_name == 'bu_objhse_evalhmse' or exp_name == 'bu_objhse_evalmse':
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=df_Sc,
+                                                         df_St=None)
+            St = None
+        elif exp_name == 'bu_objhse_evalhmse_withtemponly':
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=None,
+                                                         df_St=df_St)
+            Sc = None
+        elif exp_name == 'bu_objhse_evalhmse_withtemp':
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=df_Sc,
+                                                         df_St=df_St)
+        else:
+            raise NotImplementedError
+
+        fobj = partial(HierarchicalLossObjective, hessian=hessian, 
+                    n_bottom_timeseries=n_bottom_timeseries, n_bottom_timesteps=n_bottom_timesteps, 
+                        rng=rng, Sc=Sc, St=St, Scd=Scd, Std=Std)
+    elif sobj == 'hierarchical_obj_se_random':
+        assert df_Sc is not None
+        params['objective'] = None
+        n_bottom_timeseries = df_Sc.shape[1]
+        max_levels_random = params['max_levels_random']
+        max_categories_per_random_level = params['max_categories_per_random_level']
+        hier_freq = params['hier_freq']       
+        rng = np.random.default_rng(seed=seed)
+        fobj = partial(RandomHierarchicalLossObjective, rng=rng, 
+                       n_bottom_timeseries=n_bottom_timeseries, max_levels_random=max_levels_random, 
+                       max_categories_per_random_level=max_categories_per_random_level, 
+                       hier_freq=hier_freq)
 
     return params, fobj
 
-def set_metric(params, seval, df_Sc=None, df_St=None):
+def set_metric(params, exp_name, seval, df_Sc=None, df_St=None):
     # Set eval metric
     if seval is None or seval == 'l2':
         params['metric'] = 'l2'
@@ -227,28 +243,41 @@ def set_metric(params, seval, df_Sc=None, df_St=None):
         params['metric'] = 'hierarchical_eval_hmse'
         n_bottom_timeseries = df_Sc.shape[1]
         n_bottom_timesteps = df_St.shape[1]
-        _, denominator, Sc, _ = prepare_HierarchicalLoss(n_bottom_timeseries, 
-                                                         n_bottom_timesteps, 
-                                                         df_Sc)
-        feval = partial(HierarchicalLossMetric, denominator=denominator, Sc=Sc)
-    elif seval == 'hierarchical_eval_hmse_withtemp':
-        assert df_Sc is not None
-        assert df_St is not None
-        params['metric'] = 'hierarchical_eval_hmse'
-        n_bottom_timeseries = df_Sc.shape[1]
-        n_bottom_timesteps = df_St.shape[1]
-        _, denominator, Sc, St = prepare_HierarchicalLoss(n_bottom_timeseries, 
-                                                          n_bottom_timesteps, 
-                                                          df_Sc,
-                                                          df_St)
-        feval = partial(HierarchicalLossMetric, denominator=denominator, Sc=Sc, St=St)
+
+        if (exp_name == 'bu_objhse_evalhmse' 
+            or exp_name == 'bu_objrhse_evalhmse' 
+            or exp_name == 'bu_objmse_evalhmse' 
+            or exp_name == 'bu_objtweedie_evalhmse'):
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=df_Sc,
+                                                         df_St=None)
+            St = None
+        elif exp_name == 'bu_objhse_evalhmse_withtemponly':
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=None,
+                                                         df_St=df_St)
+            Sc = None
+        elif exp_name == 'bu_objhse_evalhmse_withtemp':
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=df_Sc,
+                                                         df_St=df_St)
+        else:
+            raise NotImplementedError
+        
+        feval = partial(HierarchicalLossMetric, denominator=denominator,  
+                       n_bottom_timeseries=n_bottom_timeseries, n_bottom_timesteps=n_bottom_timesteps, 
+                       Sc=Sc, St=St)       
+     
     elif seval == 'tweedie':
         params['metric'] = 'tweedie'
         feval = None
 
     return params, feval
 #%% Hyperparameter tuning helper functions
-def get_best_params(params, param_filepath, X, y, sobj, seval, df_Sc, df_St):
+def get_best_params(params, param_filepath, X, y, exp_name, sobj, seval, df_Sc, df_St):
     if params['tuning'] and not param_filepath.is_file():
         # Create validation set
         time_index = X.index.name
@@ -260,7 +289,7 @@ def get_best_params(params, param_filepath, X, y, sobj, seval, df_Sc, df_St):
         # Create Optuna study and run hyperparameter optimization
         sampler = optuna.samplers.TPESampler(seed=params['seed'])
         study = optuna.create_study(sampler=sampler, direction="minimize")
-        wrapped_opt_opjective = lambda trial: opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St)
+        wrapped_opt_opjective = lambda trial: opt_objective(trial, X, y, cv_iter, params, exp_name, sobj, seval, df_Sc, df_St)
         study.optimize(wrapped_opt_opjective, n_trials=params['n_trials'])
         joblib.dump(study, str(param_filepath))
     # Load best parameters if they exist, else use default values
@@ -295,7 +324,7 @@ def cv_iterator(X, time_index, n_splits=6, n_days_test=28, n_years_train=3):
     return indices_list
 
 # Optuna study
-def opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St):
+def opt_objective(trial, X, y, cv_iter, params, exp_name, sobj, seval, df_Sc, df_St):
     # Define trial params and add default_params
     trial_params = {
         'feature_pre_filter':False,
@@ -308,6 +337,18 @@ def opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St):
         'min_child_samples': trial.suggest_int('min_child_samples', 5, 5000, log=True),
     }
     trial_params.update(params)
+    # Set additional params for random hierarchical loss
+    if sobj == 'hierarchical_obj_se_random':
+        trial_params_random_loss = {
+            'max_levels_random': trial.suggest_int('max_levels_random', 2, 10),
+            'max_categories_per_random_level': trial.suggest_int('max_categories_per_random_level', 2, 1000),
+            'hier_freq': trial.suggest_int('hier_freq', 1, 7)
+        }
+        trial_params.update(trial_params_random_loss)      
+    # Set additional params for tweedie loss
+    if sobj == 'tweedie':
+        trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
+        trial_params.update(trial_params_tweedie)
     best_score, best_iter = 0.0, 0
     n_folds = len(cv_iter)
     for train_index, val_index in cv_iter:
@@ -322,20 +363,8 @@ def opt_objective(trial, X, y, cv_iter, params, sobj, seval, df_Sc, df_St):
         df_Sc_train = df_Sc
         df_Sc_val = df_Sc
         # Set objective and metric functions
-        trial_params, fobj = set_objective(trial_params, sobj, df_Sc_train, df_St_train)
-        trial_params, feval = set_metric(trial_params, seval, df_Sc_val, df_St_val)
-        # Set additional params for random hierarchical loss
-        if 'flag_params_random_hierarchical_loss' in params:
-            trial_params_random_loss = {
-                'max_levels_random': trial.suggest_int('max_levels_random', 2, 10),
-                'max_categories_per_random_level': trial.suggest_int('max_categories_per_random_level', 2, 1000),
-                'hier_freq': trial.suggest_int('hier_freq', 1, 10)
-            }
-            trial_params.update(trial_params_random_loss)
-        # Set additional params for tweedie loss
-        if trial_params['objective'] == 'tweedie':
-            trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
-            trial_params.update(trial_params_tweedie)
+        trial_params, fobj = set_objective(trial_params, exp_name, sobj, df_Sc_train, df_St_train)
+        trial_params, feval = set_metric(trial_params, exp_name, seval, df_Sc_val, df_St_val)
         # Train model
         model = lgb.train(params = trial_params,
                           train_set = train_set, 

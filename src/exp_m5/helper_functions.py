@@ -1,6 +1,29 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
+#%% M5 aggregations
+def get_aggregations(store_level=False):
+    if store_level:
+        cross_sectional_aggregations = [['cat_id_enc'],
+                                        ['dept_id_enc'],
+                                        ['item_id_enc']]
+    else:
+        cross_sectional_aggregations = [['state_id_enc'],
+                                        ['store_id_enc'],
+                                        ['cat_id_enc'],
+                                        ['dept_id_enc'],
+                                        ['state_id_enc', 'cat_id_enc'],
+                                        ['state_id_enc', 'dept_id_enc'],
+                                        ['store_id_enc', 'cat_id_enc'],
+                                        ['store_id_enc', 'dept_id_enc'],
+                                        ['item_id_enc'],
+                                        ['item_id_enc', 'state_id_enc']]
+
+    temporal_aggregations = [['year'],
+                            ['year', 'month'],
+                            ['year', 'week']]
+
+    return cross_sectional_aggregations, temporal_aggregations
 #%% Read data
 def read_m5(first_date='2011-01-01', last_date='2016-05-22', store_level=True, store_id=0):
     directory = Path(__file__).parent
