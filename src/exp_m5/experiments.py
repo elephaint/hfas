@@ -152,6 +152,8 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     model_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_model_seed_{seed}.pkl")
     if not model_filepath.is_file():
         print("No pre-trained model found. Training model...")
+        if params['reset_feature_fraction'] == True:
+            params['feature_fraction'] = params['reset_feature_fraction_value']
         start = time.perf_counter()
         model = lgb.train(params, train_set, fobj=fobj)
         end = time.perf_counter()

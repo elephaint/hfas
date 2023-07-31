@@ -1,17 +1,20 @@
 #%% Read packages
 import pandas as pd
-from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional
+import hierts.reconciliation
+import importlib
+importlib.reload(hierts.reconciliation)
+from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional, calc_summing_matrix
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
 from experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
 #%% Set experiment parameters
-store_level = True
-# store_level = False
+# store_level = True
+store_level = False
 store_id = 0
 learning_rate = 0.1
 if store_level:
-    exp_folder = f"exp1_storeid={store_id}/lr{learning_rate}/test"
+    exp_folder = f"exp1_storeid={store_id}/lr{learning_rate}"
 else:
     exp_folder = f"exp2_allstores/lr{learning_rate}"
 assert CURRENT_PATH.joinpath(exp_folder).is_dir()
@@ -33,7 +36,9 @@ default_params = {'seed': 0,
                   'max_levels_random': 2,
                   'max_categories_per_random_level': 1000,
                   'n_days_test': 28,
-                  'n_years_train': 3}
+                  'n_years_train': 3,
+                  'reset_feature_fraction': False,
+                  'reset_feature_fraction_value': 1.0}
 #%% Read data
 df = read_m5(store_level=store_level, store_id=store_id)
 # Add columns for temporal hierarchies

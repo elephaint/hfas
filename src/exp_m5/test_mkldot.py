@@ -3,13 +3,12 @@ import sparse_dot_mkl
 import pandas as pd
 import numpy as np
 import time
-from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional
+from hierts.reconciliation import hierarchy_temporal, hierarchy_cross_sectional
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
 from scipy.sparse import csr_array, csc_array
 from numba import njit, prange
-
 #%% Set experiment parameters
 store_level = False
 store_id = 0
@@ -273,12 +272,12 @@ n_levels_c = Sc.sum() // Sc.shape[1]
 denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
 n_levels_t = St.sum() // St.shape[0]
 denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0), 1)).A
-denominator_t = np.full((1, n_bottom_timesteps), fill_value=1, dtype=np.float32)
+# denominator_t = np.full((1, n_bottom_timesteps), fill_value=1, dtype=np.float32)
 denominator = denominator_c @ denominator_t
 Scd = Sc.multiply(denominator_c).tocsr()
-# Std = St.multiply(denominator_t).tocsr()
-# hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
-hessian = (Sc.T @ denominator).T.reshape(-1)
+Std = St.multiply(denominator_t).tocsr()
+hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
+# hessian = (Sc.T @ denominator).T.reshape(-1)
 #%%
 t_mkl = np.zeros((n_iters, 1))
 t_scipy = np.zeros((n_iters, 1))
@@ -289,14 +288,20 @@ for i in range(n_iters):
     start = time.perf_counter()
     gradient_scipy, hessian = objective_scipy(y_bottom_flat, yhat_bottom_flat, hessian,
                                   n_bottom_timeseries, n_bottom_timesteps,
-                                  Sc, Scd, St=None, Std=None)
+                                  Sc, Scd, St=St, Std=Std)
+    # gradient_scipy, hessian = objective_scipy(y_bottom_flat, yhat_bottom_flat, hessian,
+    #                               n_bottom_timeseries, n_bottom_timesteps,
+    #                               Sc, Scd, St=None, Std=None)
     end = time.perf_counter()
     t_scipy[i, 0] = (end - start) * 1000
 
     start = time.perf_counter()
+    # gradient_mkl, hessian = objective_mkl(y_bottom_flat, yhat_bottom_flat, hessian,
+    #                               n_bottom_timeseries, n_bottom_timesteps,
+    #                               Sc, Scd, St=None, Std=None)
     gradient_mkl, hessian = objective_mkl(y_bottom_flat, yhat_bottom_flat, hessian,
                                   n_bottom_timeseries, n_bottom_timesteps,
-                                  Sc, Scd, St=None, Std=None)
+                                  Sc, Scd, St=St, Std=Std)
     end = time.perf_counter()
     t_mkl[i, 0] = (end - start) * 1000
 
@@ -308,9 +313,12 @@ for i in range(n_iters):
     t_numba_csr[i, 0] = (end - start) * 1000
 
     start = time.perf_counter()
+    # gradient_numba_csc, hessian = objective_numba_csc(y_bottom_flat, yhat_bottom_flat, hessian,
+    #                               denominator, n_bottom_timeseries, n_bottom_timesteps,
+    #                               Sc, St=None)    
     gradient_numba_csc, hessian = objective_numba_csc(y_bottom_flat, yhat_bottom_flat, hessian,
                                   denominator, n_bottom_timeseries, n_bottom_timesteps,
-                                  Sc, St=None)    
+                                  Sc, St=St)    
     end = time.perf_counter()
     t_numba_csc[i, 0] = (end - start) * 1000
 

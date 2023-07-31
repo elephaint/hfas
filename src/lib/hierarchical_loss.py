@@ -84,8 +84,8 @@ def HierarchicalLossMetric(preds, eval_data, denominator,
     y_bottom_flat = eval_data.get_label()
     yhat_bottom_flat = preds.astype(y_bottom_flat.dtype)
     # Bottom ground-truth and predictions, reshaped
-    yhat_bottom = yhat_bottom_flat.reshape(-1, n_bottom_timeseries).T
-    y_bottom = y_bottom_flat.reshape(-1, n_bottom_timeseries).T
+    yhat_bottom = yhat_bottom_flat.reshape(n_bottom_timesteps, n_bottom_timeseries).T
+    y_bottom = y_bottom_flat.reshape(n_bottom_timesteps, n_bottom_timeseries).T
     # Compute error for all aggregations
     error = (yhat_bottom - y_bottom)
     if Sc is None:

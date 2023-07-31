@@ -6,7 +6,7 @@ CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
 #%% Load data
 store_id = 0
-learning_rate = 0.1
+learning_rate = 0.05
 # store_level = True
 # exp_folder = f"exp1_storeid={store_id}/lr0.1"
 store_level = False
@@ -39,17 +39,18 @@ _, _, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, tar
 #%% Load experimental results
 experiments = [ 
                 'globalall_objse_evalmse', 
-                # 'bu_objmse_evalmse',
-                # 'bu_objmse_evalhmse', 
-                # 'bu_objtweedie_evalmse', 
-                # 'bu_objtweedie_evalhmse',
-                # 'bu_objtweedie_evaltweedie',
-                # 'bu_objhse_evalhmse', 
-                # 'bu_objhse_evalmse',
-                # 'bu_objhse_evalhmse_withtemp',
-                # 'bu_objrhse_evalhmse',
-                # 'bu_objrhse_evalmse',
-                # 'sepagg_objse_evalmse'
+                'bu_objmse_evalmse',
+                'bu_objmse_evalhmse', 
+                'bu_objtweedie_evalmse', 
+                'bu_objtweedie_evalhmse',
+                'bu_objtweedie_evaltweedie',
+                'bu_objhse_evalhmse', 
+                # 'bu_objhse_evalhmse_ff',
+                'bu_objhse_evalmse',
+                'bu_objrhse_evalhmse',
+                'bu_objhse_evalhmse_withtemp',
+                'bu_objhse_evalhmse_withtemponly',
+                'sepagg_objse_evalmse'
                 ]
 # Load results
 df_result = pd.DataFrame()
@@ -67,8 +68,8 @@ df_result.columns = df_result.columns.map(pd.to_datetime)
 metric = 'RMSE'
 error = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-# scenarios = ['globalall', 'sepagg', 'bu']
-scenarios = ['globalall']
+scenarios = ['globalall', 'sepagg', 'bu']
+# scenarios = ['sepagg', 'bu']
 
 for scenario in scenarios:
     for seed in seeds:
@@ -90,12 +91,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 error_allseries = error.loc[(['sepagg', 'bu'], slice(None), 'All series')]
-keep_cols = [   'bu_objhse_evalhmse', 
+keep_cols = [   'bu_objhse_evalhmse_ff', 
                 # 'bu_objhse_evalmse',
                 # 'bu_objrhse_evalhmse',
                 # 'bu_objmse_evalhmse', 
                 'bu_objmse_evalmse', 
-                # 'bu_objtweedie_evalmse', 
+                'bu_objtweedie_evalmse', 
                 'wls_var',
                 'mint_shrink'
                 ]
@@ -104,7 +105,7 @@ renamed_cols = ['Bottom-up: HL/HL',
                 # 'Bottom-up: RHL/HL',
                 # 'Bottom-up: SL/HL', 
                 'Bottom-up: SL/SL', 
-                # 'Bottom-up: TL/SL', 
+                'Bottom-up: TL/SL', 
                 'Sep. agg.: WLS-var', 
                 'Sep. agg.: MinT-shrink']
 error_allseries = error_allseries[keep_cols]

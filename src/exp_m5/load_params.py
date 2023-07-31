@@ -6,7 +6,7 @@ current_path = Path(__file__).parent
 best_trials = {}
 best_feature_fractions = {}
 params_dict =  {}
-add_path = 'exp1_storeid=0/lr0.05'
+add_path = 'exp1_storeid=0/lr0.1'
 # for experiment in experiments:
 for path in current_path.joinpath(add_path).glob('*.params'):
     params = joblib.load(path)
