@@ -193,7 +193,6 @@ def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
         assert df_Sc is not None
         assert df_St is not None
         params['objective'] = None
-        rng = np.random.default_rng(seed=seed)
         n_bottom_timeseries = df_Sc.shape[1]
         n_bottom_timesteps = df_St.shape[1]
         if exp_name == 'bu_objhse_evalhmse' or exp_name == 'bu_objhse_evalmse':
@@ -218,7 +217,7 @@ def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
 
         fobj = partial(HierarchicalLossObjective, hessian=hessian, 
                     n_bottom_timeseries=n_bottom_timeseries, n_bottom_timesteps=n_bottom_timesteps, 
-                        rng=rng, Sc=Sc, St=St, Scd=Scd, Std=Std)
+                        Sc=Sc, St=St, Scd=Scd, Std=Std)
     elif sobj == 'hierarchical_obj_se_random':
         assert df_Sc is not None
         params['objective'] = None
@@ -227,7 +226,7 @@ def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
         max_categories_per_random_level = params['max_categories_per_random_level']
         hier_freq = params['hier_freq']       
         rng = np.random.default_rng(seed=seed)
-        fobj = partial(RandomHierarchicalLossObjective, rng=rng, 
+        fobj = partial(RandomHierarchicalLossObjective, rng=rng,
                        n_bottom_timeseries=n_bottom_timeseries, max_levels_random=max_levels_random, 
                        max_categories_per_random_level=max_categories_per_random_level, 
                        hier_freq=hier_freq)

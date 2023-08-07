@@ -6,7 +6,7 @@ CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
 #%% Load data
 store_id = 0
-learning_rate = 0.05
+learning_rate = 0.1
 # store_level = True
 # exp_folder = f"exp1_storeid={store_id}/lr0.1"
 store_level = False
@@ -45,10 +45,11 @@ experiments = [
                 'bu_objtweedie_evalhmse',
                 'bu_objtweedie_evaltweedie',
                 'bu_objhse_evalhmse', 
-                # 'bu_objhse_evalhmse_ff',
+                'bu_objhse_evalhmse_rff',
                 'bu_objhse_evalmse',
                 'bu_objrhse_evalhmse',
                 'bu_objhse_evalhmse_withtemp',
+                'bu_objhse_evalhmse_withtemp_rff',
                 'bu_objhse_evalhmse_withtemponly',
                 'sepagg_objse_evalmse'
                 ]
@@ -68,8 +69,8 @@ df_result.columns = df_result.columns.map(pd.to_datetime)
 metric = 'RMSE'
 error = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-scenarios = ['globalall', 'sepagg', 'bu']
-# scenarios = ['sepagg', 'bu']
+# scenarios = ['globalall', 'sepagg', 'bu']
+scenarios = ['sepagg', 'bu']
 
 for scenario in scenarios:
     for seed in seeds:

@@ -7,6 +7,8 @@ from hierts.reconciliation import apply_reconciliation_methods, hierarchy_tempor
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
+import experiments
+importlib.reload(experiments)
 from experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
 #%% Set experiment parameters
 # store_level = True
@@ -151,6 +153,8 @@ for experiment in experiments_bu:
         sobj = experiment['sobj']
         seval = experiment['seval']
         params = default_params.copy()
+        if sobj == "hierarchical_obj_se":
+            params['reset_feature_fraction'] = True
         forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, 
                                                 name_bottom_timeseries, df_Sc, df_St, exp_folder=exp_folder,
                                                 params=params, exp_name=exp_name,
