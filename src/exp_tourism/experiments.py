@@ -16,7 +16,7 @@ from functools import partial
 from src.lib import prepare_HierarchicalLoss, HierarchicalLossObjective, HierarchicalLossMetric, RandomHierarchicalLossObjective
 warnings.filterwarnings('ignore')
 #%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
-def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
+def exp_tourism_globalall(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
                     exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
     # Set parameters
     params['seed'] = seed
@@ -61,7 +61,7 @@ def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, start_test
     return forecasts, t_train, t_predict
 
 #%% Setting 2: A separate model for each aggregation in the hierarchy
-def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
+def exp_tourism_sepagg(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
                     exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
     # Create parameter dict
     params['seed'] = seed
@@ -105,6 +105,7 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, start_test, d
             timings_filepath = CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")
             df_timings = pd.read_csv(str(timings_filepath), index_col=0)
             t_train += df_timings.loc[seed]["t_train"]            
+        
         # Make predictions for both train and test set (we need the train residuals for covariance estimation in the reconciliation methods)
         start = time.perf_counter()
         dates = Xl.index.get_level_values(time_index).unique().sort_values()
@@ -120,7 +121,7 @@ def exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, start_test, d
     return forecasts, t_train, t_predict
 
 #%% Setting 3: A single global model that forecasts ONLY the bottom level timeseries, with temporal hierarchies added
-def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, name_bottom_timeseries, 
+def exp_tourism_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, name_bottom_timeseries, 
                             df_Sc, df_St, exp_name, exp_folder, params, sobj=None, seval=None, seed=0):
     # Only keep bottom-level timeseries
     Xb = X[X['Aggregation'] == name_bottom_timeseries]
@@ -170,7 +171,7 @@ def exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start
     forecasts_bu_bottom_level = df_yhat.unstack([time_index]).loc[targets.loc[name_bottom_timeseries].index, dates]
     forecasts_bu = aggregate_bottom_up_forecasts(forecasts_bu_bottom_level, df_Sc, name_bottom_timeseries)
     end = time.perf_counter()
-    t_predict = (end - start)    
+    t_predict = (end - start)
 
     return forecasts_bu, t_train, t_predict
 
@@ -325,11 +326,11 @@ def opt_objective(trial, X, y, cv_iter, params, exp_name, sobj, seval, df_Sc, df
         'feature_pre_filter':False,
         'lambda_l1': trial.suggest_loguniform('lambda_l1', 1e-8, 10.0),
         'lambda_l2': trial.suggest_loguniform('lambda_l2', 1e-8, 10.0),
-        'num_leaves': trial.suggest_int('num_leaves', 8, 1024),
-        'feature_fraction': trial.suggest_uniform('feature_fraction', 0.4, 1.0),
-        'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.4, 1.0),
+        'num_leaves': trial.suggest_int('num_leaves', 8, 256),
+        'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),
+        'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),
         'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
-        'min_child_samples': trial.suggest_int('min_child_samples', 5, 5000, log=True),
+        'min_child_samples': trial.suggest_int('min_child_samples', 5, 1000, log=True),
     }
     trial_params.update(params)
     # Set additional params for random hierarchical loss
@@ -391,28 +392,21 @@ def get_predictions(model, X, target, time_index, end_train, start_test, insampl
     # out-of-sample predictions
     n_dates_test = X.loc[start_test:].index.nunique()
     X_test = X.drop(columns = [target])
-    cols = X_test.columns.copy()
     lag_columns = [col for col in X_test.columns if 'lag' in col and not 'mavg' in col]
-    lag_columns = [col for col in lag_columns if int(col.rsplit('lag', 1)[1]) < n_dates_test]
     mavg_columns = [col for col in X_test.columns if 'mavg' in col]
     mavgs = [col.rsplit('mavg', 1)[1] for col in mavg_columns]
-    other_columns = [col for col in X_test.columns if 
-                       col not in lag_columns 
-                       and col not in mavg_columns 
-                       and 'Aggregation' not in col 
-                       and 'Value' not in col]
+    non_lag_columns = [col for col in X_test.columns if 'lag' not in col and 'Aggregation' not in col and 'Value' not in col]
     # Pandas is crap software, some idiot thought it's a good idea to create a transposed Series from a DataFrame if you only select a single row
     X_test_lags = X_test.loc[[start_test], lag_columns]
     X_test_mavgs = X_test.loc[[start_test], mavg_columns]
-
+    # print(X_test.loc[start_test][[lag_columns]].shape)
     for date in range(n_dates_test):
         # Create current X_test
         X_test_agg = X_test.loc[[start_test], ["Aggregation", "Value"]]
         X_test_lags = pd.DataFrame(X_test_lags.values, index=X_test_agg.index, columns=X_test_lags.columns)
         X_test_mavgs = pd.DataFrame(X_test_mavgs.values, index=X_test_agg.index, columns=X_test_mavgs.columns)
-        X_test_other = X_test.loc[[start_test], other_columns]
-        X_test_current = pd.concat((X_test_agg, X_test_lags, X_test_mavgs, X_test_other), axis=1)
-        X_test_current = X_test_current[cols]
+        X_test_nonlags = X_test.loc[[start_test], non_lag_columns]
+        X_test_current = pd.concat((X_test_agg, X_test_lags, X_test_mavgs, X_test_nonlags), axis=1)
         # Predict
         yhat_outsample = model.predict(X_test_current)
         yhat_outsample = np.clip(yhat_outsample, 0, 1e9).astype('float32')
@@ -430,7 +424,7 @@ def get_predictions(model, X, target, time_index, end_train, start_test, insampl
             X_test_mavgs.loc[:, mavg_column] -= (1 / int(mavg)) * X_test_mavgs.loc[:, mavg_column]
             X_test_mavgs.loc[:, mavg_column] += (1 / int(mavg)) * yhat_outsample
         # Go to next test point
-        start_test += pd.DateOffset(days=1)
+        start_test += pd.DateOffset(months=3)
 
     # Output is combination of in- and out-of-sample predictions
     if insample:

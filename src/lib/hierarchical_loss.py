@@ -45,8 +45,8 @@ def prepare_HierarchicalLoss(n_bottom_timeseries, n_bottom_timesteps,
     # Compute denominator and hessian
     denominator = denominator_c @ denominator_t
     hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
-    Scd = Sc.multiply(denominator_c).tocsr()
-    Std = St.multiply(denominator_t).tocsr()
+    Scd = Sc.multiply(denominator_c).tocsc()
+    Std = St.multiply(denominator_t).tocsc()
 
     return hessian, denominator, Sc, Scd, St, Std
 

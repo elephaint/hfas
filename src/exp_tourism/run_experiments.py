@@ -6,14 +6,14 @@ CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_tourism, get_aggregations, create_forecast_set
 from experiments import exp_tourism_globalall, exp_tourism_sepagg, exp_tourism_globalbottomup
 #%% Set experiment parameters
-exp_folder = "lr0.05"
+exp_folder = "exp1_lr0.05"
 assert CURRENT_PATH.joinpath(exp_folder).is_dir()
 cross_sectional_aggregations, temporal_aggregations = get_aggregations()
 time_index = 'Quarter'
 target = 'Trips'
 name_bottom_timeseries = 'bottom_timeseries'
-end_train = '2015Q4'
-start_test = '2016Q1'
+end_train = pd.to_datetime("2015Q4")
+start_test = pd.to_datetime("2016Q1")
 # Other experiment settings
 n_seeds = 10
 default_params = {'seed': 0,
@@ -25,20 +25,21 @@ default_params = {'seed': 0,
                   'n_validation_sets': 3,
                   'max_levels_random': 2,
                   'max_categories_per_random_level': 5,
-                  'n_days_test': 28,
-                  'n_years_train': 3}
+                  'n_days_test': 2*365,
+                  'n_years_train': 15,
+                  'reset_feature_fraction': False,
+                  'reset_feature_fraction_value': 1.0}
 #%% Read data
 df = read_tourism()
 # Add columns for temporal hierarchies
-df['year'] = df['date'].dt.year
+df["year"] = df["Quarter"].dt.year
 # Calculate cross-sectional and temporal hierarchy summing matrices
 df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
-df_Sc = df_Sc.drop('..') 
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 # Create forecast set
 aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregations for col in cols]))
 df = df.drop(columns = ['year'])
-X, Xind, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target, forecast_day=0)
+X, Xind, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target)
 #%% Setting 1: global models for all time series
 experiments_global = [{'exp_name':'globalall_objse_evalmse'}]
 for experiment in experiments_global:
@@ -47,7 +48,7 @@ for experiment in experiments_global:
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
         params = default_params.copy()
-        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
+        forecast_seed, t_train_seed, t_predict_seed =  exp_tourism_globalall(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
                                          exp_name=exp_name, params=params, exp_folder=exp_folder,
                                          seed=seed)
         # Apply reconciliation methods
@@ -73,7 +74,7 @@ for experiment in experiments_agg:
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
         params = default_params.copy()
-        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
+        forecast_seed, t_train_seed, t_predict_seed =  exp_tourism_sepagg(X, Xind, targets, target, time_index, end_train, start_test,
                                          df_Sc, df_St, exp_name=exp_name, params=params,
                                          exp_folder=exp_folder, seed=seed)
         experiment[f'forecast_seed_{seed}'] = forecast_seed
@@ -95,33 +96,27 @@ for experiment in experiments_agg:
 
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
-                    # {'exp_name':'bu_objmse_evalmse',
-                    # 'fobj':'l2',
-                    # 'feval':'l2'},
-                    # {'exp_name':'bu_objmse_evalhmse',
-                    # 'fobj':'l2',
-                    # 'feval': 'hierarchical_eval_hmse'},
-                    # {'exp_name':'bu_objtweedie_evalmse',
-                    # 'fobj':'tweedie',
-                    # 'feval':'l2'},
-                    # {'exp_name':'bu_objtweedie_evalhmse',
-                    # 'fobj':'tweedie',
-                    # 'feval': 'hierarchical_eval_hmse'},
-                    # {'exp_name':'bu_objtweedie_evaltweedie',
-                    # 'fobj':'tweedie',
-                    # 'feval': 'tweedie'},
-                    # {'exp_name':'bu_objhse_evalhmse',
-                    # 'fobj': 'hierarchical_obj_se',
-                    # 'feval': 'hierarchical_eval_hmse'},
-                    # {'exp_name':'bu_objhse_evalmse',
-                    # 'fobj': 'hierarchical_obj_se',
-                    # 'feval': 'l2'},
-                    # {'exp_name':'bu_objrhse_evalhmse',
-                    # 'fobj': 'hierarchical_obj_se_random',
-                    # 'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objmse_evalmse',
+                    'fobj':'l2',
+                    'feval':'l2'},
+                    {'exp_name':'bu_objmse_evalhmse',
+                    'fobj':'l2',
+                    'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objhse_evalhmse',
+                    'fobj': 'hierarchical_obj_se',
+                    'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objhse_evalmse',
+                    'fobj': 'hierarchical_obj_se',
+                    'feval': 'l2'},
+                    {'exp_name':'bu_objrhse_evalhmse',
+                    'fobj': 'hierarchical_obj_se_random',
+                    'feval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objhse_evalhmse_withtemp',
                     'fobj': 'hierarchical_obj_se',
                     'feval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objhse_evalhmse_withtemponly',
+                    'fobj': 'hierarchical_obj_se',
+                    'feval': 'hierarchical_eval_hmse'},                    
                     ]
 # # We loop over all the experiments and create forecasts for n_seeds
 for experiment in experiments_bu:
@@ -132,7 +127,8 @@ for experiment in experiments_bu:
         sobj = experiment['fobj']
         seval = experiment['feval']
         params = default_params.copy()
-        forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, 
+        forecasts_test, t_train_seed, t_predict_seed =  exp_tourism_globalbottomup(X, Xind, targets, target, 
+                                                                                   time_index, end_train, start_test, 
                                                 name_bottom_timeseries, df_Sc, df_St, exp_folder=exp_folder,
                                                 params=params, exp_name=exp_name,
                                                 sobj=sobj, seval=seval, seed=seed)

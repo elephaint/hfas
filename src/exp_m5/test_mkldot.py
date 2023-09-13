@@ -10,7 +10,7 @@ from helper_functions import read_m5, get_aggregations, create_forecast_set
 from scipy.sparse import csr_array, csc_array
 from numba import njit, prange
 #%% Set experiment parameters
-store_level = False
+store_level = True
 store_id = 0
 cross_sectional_aggregations, temporal_aggregations = get_aggregations(store_level)
 name_bottom_timeseries = 'products'

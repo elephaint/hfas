@@ -3,7 +3,7 @@ import pandas as pd
 import hierts.reconciliation
 import importlib
 importlib.reload(hierts.reconciliation)
-from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional, calc_summing_matrix
+from hierts.reconciliation import apply_reconciliation_methods, hierarchy_temporal, hierarchy_cross_sectional
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_m5, get_aggregations, create_forecast_set
@@ -14,7 +14,7 @@ from experiments import exp_m5_globalall, exp_m5_sepagg, exp_m5_globalbottomup
 # store_level = True
 store_level = False
 store_id = 0
-learning_rate = 0.1
+learning_rate = 0.05
 if store_level:
     exp_folder = f"exp1_storeid={store_id}/lr{learning_rate}"
 else:
@@ -24,8 +24,8 @@ cross_sectional_aggregations, temporal_aggregations = get_aggregations(store_lev
 time_index = 'date'
 target = 'sales'
 name_bottom_timeseries = 'products'
-end_train = '2016-04-24'
-start_test = '2016-04-25'
+end_train = pd.to_datetime('2016-04-24')
+start_test = pd.to_datetime('2016-04-25')
 # Other experiment settings
 n_seeds = 10
 default_params = {'seed': 0,
@@ -50,8 +50,6 @@ df['month'] = df['date'].dt.month
 df['day'] = df['date'].dt.day
 # Calculate cross-sectional and temporal hierarchy summing matrices
 df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
-if store_level:
-    df_Sc = df_Sc.drop('item_id_enc') 
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 # Create forecast set
 aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregations for col in cols]))
@@ -65,13 +63,13 @@ for experiment in experiments_global:
     for seed in range(n_seeds):
         exp_name = experiment['exp_name']
         params = default_params.copy()
-        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, df_Sc, df_St, 
-                                         exp_name=exp_name, params=params, exp_folder=exp_folder,
-                                         seed=seed)
+        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
+                                                                        start_test, df_Sc, df_St, exp_name=exp_name, 
+                                                                        params=params, exp_folder=exp_folder, seed=seed)
         # Apply reconciliation methods
         forecasts_test = forecast_seed.loc[:, start_test:]
         forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
-                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True, return_timing=True)
+                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
         # Add result to result df
         dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
         df_result = pd.concat((df_result, dfc))
@@ -92,13 +90,13 @@ for experiment in experiments_agg:
         exp_name = experiment['exp_name']
         params = default_params.copy()
         forecast_seed, t_train_seed, t_predict_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
-                                         df_Sc, df_St, exp_name=exp_name, params=params,
-                                         exp_folder=exp_folder, seed=seed)
+                                                                     start_test, df_Sc, df_St, exp_name=exp_name, 
+                                                                     params=params, exp_folder=exp_folder, seed=seed)
         experiment[f'forecast_seed_{seed}'] = forecast_seed
         # Apply reconciliation methods
         forecasts_test = forecast_seed.loc[:, start_test:]
         forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
-                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_cov', 'mint_shrink', 'erm'], positive=True, return_timing=True)
+                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
         # Add result to result df
         dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
         df_result = pd.concat((df_result, dfc))
@@ -155,10 +153,10 @@ for experiment in experiments_bu:
         params = default_params.copy()
         if sobj == "hierarchical_obj_se":
             params['reset_feature_fraction'] = True
-        forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, start_test, 
-                                                name_bottom_timeseries, df_Sc, df_St, exp_folder=exp_folder,
-                                                params=params, exp_name=exp_name,
-                                                sobj=sobj, seval=seval, seed=seed)
+        forecasts_test, t_train_seed, t_predict_seed =  exp_m5_globalbottomup(X, Xind, targets, target, time_index, end_train, 
+                                                                              start_test, name_bottom_timeseries, df_Sc, df_St, 
+                                                                              exp_folder=exp_folder, params=params, exp_name=exp_name,
+                                                                              sobj=sobj, seval=seval, seed=seed)
         forecasts_method = pd.concat({f"{experiment['exp_name']}" : forecasts_test}, names=['Method'])
         # Add result to result df
         dfc = pd.concat({f'{seed}': forecasts_method}, names=['Seed'])

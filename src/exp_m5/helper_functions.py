@@ -43,7 +43,7 @@ def read_m5(first_date='2011-01-01', last_date='2016-05-22', store_level=True, s
 
     return df
 #%% Feature engineering
-def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day):
+def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast_day=0):
     # Add bottom-level time series to dataframe
     bottom_timeseries = pd.DataFrame(index=df_S.columns.str.split(pat='-',expand=True).set_names(aggregation_cols)).reset_index()
     bottom_timeseries[aggregation_cols] = bottom_timeseries[aggregation_cols].astype('int')
