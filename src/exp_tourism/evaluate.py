@@ -33,7 +33,7 @@ experiments = [
                 'bu_objmse_evalmse',
                 'bu_objmse_evalhmse', 
                 'bu_objhse_evalhmse', 
-                'bu_objhse_evalmse',
+                # 'bu_objhse_evalmse',
                 'bu_objrhse_evalhmse',
                 'bu_objhse_evalhmse_withtemp',
                 'bu_objhse_evalhmse_withtemponly',
@@ -57,7 +57,7 @@ for experiment in experiments:
     df_result = pd.concat((df_result, df))
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate error per seed
-metric = 'MAE'
+metric = 'RMSE'
 error = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 scenarios = ['globalall', 'sepagg', 'SeasonalNaive', 
@@ -121,6 +121,59 @@ leg = fig.legend(handles, labels, loc = 'lower center', ncol=3)
 leg.get_frame().set_linewidth(0.0)
 plt.xticks(rotation=45)
 fig.tight_layout()
+#%% Forecast plot
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-import numpy as np
-np.count_nonzero(df_seed)
+scenarios = ['sepagg', 'SeasonalNaive', 
+             'Naive', 'AutoETS', 'AutoTheta', 
+             'Naive', 'AutoARIMA', 'CrostonOptimized', 
+             'bu']
+
+df_forecast = pd.DataFrame()
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+aggregation = "Total"
+value = "Total"
+for scenario in scenarios:
+    for seed in seeds:
+        try:
+            df_seed = df_result.loc[(scenario, seed, slice(None), aggregation, value)]
+            df_seed = pd.concat({f'{seed}': df_seed}, names=['Seed'])
+            df_seed = pd.concat({f"{scenario}": df_seed}, names=['Scenario'])
+            df_forecast = pd.concat((df_forecast, df_seed))
+        except:
+            pass
+# Aggregate results
+df_forecast_mean = df_forecast.groupby(['Scenario', 'Method']).mean()
+targets_plot = targets.loc[(aggregation, value), df_forecast_mean.columns]
+targets_previous = targets.loc[(aggregation, value), df_forecast_mean.columns[0] - pd.DateOffset(months=3 * 20):df_forecast_mean.columns[0] - pd.DateOffset(months=3)]
+
+plot_scenario_methods = [
+                        ["AutoARIMA", "ols"], 
+                        #  ["AutoETS", "ols"],
+                        #  ["AutoTheta", "wls_var"],
+                        #  ["CrostonOptimized", "ols"],
+                        #  ["Naive", "ols"],
+                         ["bu", "bu_objhse_evalhmse"],
+                         ["sepagg", "mint_shrink"],
+                        #  ["sepagg", "wls_var"],
+                         ]
+# Plot
+fig, axes = plt.subplots(1, 1)
+for i, ax in enumerate(fig.axes):
+    # sns.boxplot(ax = ax, y=metric, x='Method', data=error_allseries, width=1, showfliers=False)
+    sns.lineplot(ax = ax, data=targets_previous)
+    sns.lineplot(ax = ax, data=targets_plot)
+    for (scenario, method) in plot_scenario_methods:
+        sns.lineplot(ax = ax, data=df_forecast_mean.loc[(scenario, method)])
+    ax.set_title(label=f'Forecasts - {aggregation} - {value}', fontsize=12)
+    # ax.tick_params(labelsize=12)
+    # ax.spines['top'].set_color('white') 
+    # ax.spines['right'].set_color('white')
+    ax.set_ylabel(ylabel = 'Forecasts', fontsize=12)
+    # ax.legend_.remove()
+handles, labels = ax.get_legend_handles_labels()
+leg = fig.legend(handles, labels, loc = 'lower center', ncol=3)
+leg.get_frame().set_linewidth(0.0)
+# plt.xticks(rotation=45)
+fig.tight_layout()

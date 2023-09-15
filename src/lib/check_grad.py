@@ -132,110 +132,33 @@ assert np.allclose(gradient, gradient_exact.T)
 #     if i == 10:
 #         break
 # assert np.allclose(hessian_exact, auto_hessian)
-#%%
-import sparse_dot_mkl
-dot_product = sparse_dot_mkl.dot_product_mkl
-
-
-def mkl_product(Sc, targets, St):
-
-    return dot_product(dot_product(Sc, targets), St)
-
-
 
 #%%
-from scipy import sparse
-from numba import njit
+Sc = np.array([[1, 1],[1, 0],[0, 1]]).astype('float64')
+St = np.array([[1, 1],[1, 0],[0, 1]]).astype('float64').T
+y_bottom = np.random.rand(Sc.shape[1], 2)
+yhat_bottom = np.random.rand(y_bottom.shape[0], y_bottom.shape[1])
+y = (Sc @ y_bottom @ St).astype('float64')
 
-@njit
-def print_csr(A, iA, jA):
-    for row in range(len(iA)-1):
-        for i in range(iA[row], iA[row+1]):
-            print(row, jA[i], A[i])
+n_levels_c = Sc.sum() // Sc.shape[1]
+denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1, keepdims=True))
+n_levels_t = St.sum() // St.shape[0]
+denominator_t = 1 / (n_levels_t * np.maximum(np.sum(St, axis=0, keepdims=True), 1))
 
-# @njit
-# def matmul(A, iA, jA, B, iB, jB):
-#     for row in range(len(iA)-1):
-#         for row in range(len(iB)-1):
-#             for i in range(iA[row], iA[row+1]):
-#                 print(row, jA[i], A[i])            
-
-A = sparse.csr_matrix([[1, 2, 0], [0, 0, 3], [4, 0, 5], [0, 0, 1]])
-B = sparse.csr_matrix([[1, 2], [0, 0], [4, 0]])
-matmul(A.data, A.indptr, A.indices, B.data, B.indptr, B.indices)
-Acoo, Bcoo = A.tocoo(), B.tocoo()
-
-def matmul(A, B):
-    C = np.array((A.shape[0], B.shape[1]))
-    for a in range(A.nnz):
-        for b in range(B.nnz):
+denominator = denominator_c @ denominator_t
+hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
 
 
-
-#%%
-S = np.array([[1, 1],[1, 0],[0, 1]]).astype('float64')
-# S = np.array([[1, 0],[0, 1]]).astype('float64')
-y_bottom = np.random.rand(S.shape[1], 2)
-y = (S @ y_bottom).astype('float64')
-yhat_bottom = np.random.rand(y.shape[1] * S.shape[1])
-n_levels = S.sum(1).max()
-# n_levels = 1
-
-grad_hierarchical_se = grad(hierarchical_eval_se)
-gradient = grad_hierarchical_se(yhat_bottom, y, S, n_levels)
-gradient_exact, hessian_exact = hierarchical_obj_se2(yhat_bottom, y, S, n_levels)
+grad_hierarchical_se = grad(hierarchical_eval_se_new)
+gradient = grad_hierarchical_se(yhat_bottom.reshape(-1, Sc.shape[1]).T, y_bottom, Sc, St, n_levels_c, n_levels_t)
+gradient_exact, hessian_exact = hierarchical_obj_se_new(yhat_bottom, y_bottom, Sc, St, n_levels_c, n_levels_t)
 assert np.allclose(gradient, gradient_exact)
-auto_hessian = np.zeros(gradient.shape[0])
-eps = 1e-9
-for i in range(gradient.shape[0]):
-    epsilon = np.zeros(gradient.shape[0])
-    epsilon[i] = eps
-    gradient_upper, _ = hierarchical_obj_se2(yhat_bottom  + epsilon, y, S, n_levels)
-    gradient_lower, _ = hierarchical_obj_se2(yhat_bottom  - epsilon, y, S, n_levels)
-    auto_hessian[i] = (gradient_upper[i] - gradient_lower[i]) / (2 * eps)
-assert np.allclose(hessian_exact, auto_hessian)
-#%% Sparse grad - code check for bol.com
-from scipy.sparse import csc_array
-import numpy as np
-mask = csc_array((np.zeros(6), ([0, 0, 1, 1, 30489, 30489], [0, 1, 1236, 1237, 0, 1])), shape=(30490, 1238))
-#eps_mask = csc_array((np.full(7, 1e-12), ([0, 0, 1, 1, 30489, 30489, 30489], [0, 1, 1236, 1237, 0, 1, 2])), shape=(30490, 1238), dtype=np.float32)
-
-hessian_step = csc_array(np.sum(S.T.multiply(denominator.T), axis=1).T)
-hessian_full = csc_array(hessian_step.todense().repeat(1238, axis=0))
-
-hessian_sparse = csc_array(mask.T * hessian_step)
-hessian_sparse2 = csc_array(mask.T * hessian_full)
-
-#%%
-
-yhat_bottom_dense = np.random.rand(df_target.shape[0], df_target.shape[1])
-yhat_bottom_dense *= np.random.binomial(size=yhat_bottom_dense.shape, n=1, p=0.2)
-yhat_bottom = csc_array(yhat_bottom_dense.T)
-# yhat_dense = S @ yhat_bottom_dense.T
-
-def _hierarchical_obj_se(preds, train_data, S, denominator, y, mask, date_placed_codes, \
-                        global_id_codes, n_date_placed, n_global_id):
-    # Compute predictions for all aggregations
-    # predictions = np.maximum(preds.astype(S.dtype), 1e-6)
-    predictions = preds.astype(S.dtype)
-    yhat_bottom = csc_array((predictions, (global_id_codes, date_placed_codes)), \
-                    shape=(n_global_id, n_date_placed), dtype=np.float32)
-    eps_mask = csc_array((np.full(len(predictions), 1e-6, dtype=np.float32), (global_id_codes, date_placed_codes)), \
-                    shape=(n_global_id, n_date_placed))     
-    yhat = (S @ yhat_bottom)
-    # Compute gradients for all aggregations
-    gradient_agg = csc_array((yhat - y) * denominator)
-    # Convert gradients back to bottom-level series
-    gradient_full = csc_array(gradient_agg.T @ S)
-    # Apply mask to only keep entries that are also in preds
-    gradient_sparse = csc_array(mask.T * gradient_full)
-    # Output gradient and hessian
-    gradient = gradient_sparse.data
-    
-    # Calculate hessian
-    hessian_step = csc_array(np.sum(S.T.multiply(denominator.T), axis=1).T)
-    # Apply mask to only keep entries that are also in preds
-    hessian_sparse = csc_array(mask.T * hessian_step)
-    hessian = hessian_sparse.data
-
-    return gradient, hessian
+# auto_hessian = np.zeros(gradient.shape[0])
+# eps = 1e-9
+# for i in range(gradient.shape[0]):
+#     epsilon = np.zeros(gradient.shape[0])
+#     epsilon[i] = eps
+#     gradient_upper, _ = hierarchical_obj_se2(yhat_bottom  + epsilon, y, S, n_levels)
+#     gradient_lower, _ = hierarchical_obj_se2(yhat_bottom  - epsilon, y, S, n_levels)
+#     auto_hessian[i] = (gradient_upper[i] - gradient_lower[i]) / (2 * eps)
+# assert np.allclose(hessian_exact, auto_hessian)

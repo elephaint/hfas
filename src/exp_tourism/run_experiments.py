@@ -6,7 +6,7 @@ CURRENT_PATH = Path(__file__).parent
 from helper_functions import read_tourism, get_aggregations, create_forecast_set
 from experiments import exp_tourism_globalall, exp_tourism_sepagg, exp_tourism_globalbottomup
 #%% Set experiment parameters
-exp_folder = "exp1_lr0.05"
+exp_folder = "exp1_lr0.05_linear"
 assert CURRENT_PATH.joinpath(exp_folder).is_dir()
 cross_sectional_aggregations, temporal_aggregations = get_aggregations()
 time_index = 'Quarter'
@@ -28,7 +28,8 @@ default_params = {'seed': 0,
                   'n_days_test': 2*365,
                   'n_years_train': 15,
                   'reset_feature_fraction': False,
-                  'reset_feature_fraction_value': 1.0}
+                  'reset_feature_fraction_value': 1.0,
+                  'linear_tree': True}
 #%% Read data
 df = read_tourism()
 # Add columns for temporal hierarchies
@@ -96,27 +97,27 @@ for experiment in experiments_agg:
 
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
-                    {'exp_name':'bu_objmse_evalmse',
-                    'fobj':'l2',
-                    'feval':'l2'},
-                    {'exp_name':'bu_objmse_evalhmse',
-                    'fobj':'l2',
-                    'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objmse_evalmse',
+                    # 'fobj':'l2',
+                    # 'feval':'l2'},
+                    # {'exp_name':'bu_objmse_evalhmse',
+                    # 'fobj':'l2',
+                    # 'feval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objhse_evalhmse',
                     'fobj': 'hierarchical_obj_se',
                     'feval': 'hierarchical_eval_hmse'},
                     {'exp_name':'bu_objhse_evalmse',
                     'fobj': 'hierarchical_obj_se',
                     'feval': 'l2'},
-                    {'exp_name':'bu_objrhse_evalhmse',
-                    'fobj': 'hierarchical_obj_se_random',
-                    'feval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalhmse_withtemp',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalhmse_withtemponly',
-                    'fobj': 'hierarchical_obj_se',
-                    'feval': 'hierarchical_eval_hmse'},                    
+                    # {'exp_name':'bu_objrhse_evalhmse',
+                    # 'fobj': 'hierarchical_obj_se_random',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalhmse_withtemp',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalhmse_withtemponly',
+                    # 'fobj': 'hierarchical_obj_se',
+                    # 'feval': 'hierarchical_eval_hmse'},                    
                     ]
 # # We loop over all the experiments and create forecasts for n_seeds
 for experiment in experiments_bu:

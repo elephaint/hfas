@@ -10,7 +10,7 @@ learning_rate = 0.05
 # store_level = True
 # exp_folder = f"exp1_storeid={store_id}/lr0.1"
 store_level = False
-exp_folder = f"exp2_allstores/lr{learning_rate}/_old/direct_forecast"
+exp_folder = f"exp2_allstores/lr{learning_rate}"
 assert CURRENT_PATH.joinpath(exp_folder).is_dir()
 cross_sectional_aggregations, temporal_aggregations = get_aggregations(store_level)
 time_index = 'date'
@@ -69,15 +69,15 @@ for experiment in experiments:
     df_result = pd.concat((df_result, df))
 df_result.columns = df_result.columns.map(pd.to_datetime)
 # Calculate error per seed
-metric = 'RMSE'
+metric = 'MAE'
 error = pd.DataFrame()
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 # scenarios = ['globalall', 'sepagg', 'bu']
 # scenarios = ['sepagg', 'bu']
 scenarios = ['sepagg', 'SeasonalNaive', 
              'Naive', 'AutoETS', 'AutoTheta', 
-             'Naive', 'AutoARIMA', 'CrostonOptimized', 
-             'bu']
+             'AutoARIMA', 'CrostonOptimized', 
+             'bu', 'globalall']
 
 for scenario in scenarios:
     for seed in seeds:
@@ -95,8 +95,8 @@ error_mean = error_mean.unstack(0).T.swaplevel(0, 1).sort_index(level=0).dropna(
 error_std = error.groupby(['Scenario', 'Aggregation']).std()
 error_std = error_std.unstack(0).T.swaplevel(0, 1).sort_index(level=0).dropna()
 #%% Save
-error_mean.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/rmse_mean_lgbm_hier.csv")))
-error_std.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/rmse_std_lgbm_hier.csv")))
+error_mean.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{metric}_mean.csv")))
+error_std.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{metric}_std.csv")))
 #%% Variance plot
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -198,4 +198,41 @@ leg = fig.legend(handles, labels, loc = 'lower center', ncol=3)
 leg.get_frame().set_linewidth(0.0)
 # plt.xticks(rotation=45)
 fig.tight_layout()
+#%% Plot RMSE per timestamp for selected methods
+# Calculate error per seed
+import numpy as np
+error = pd.DataFrame()
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# scenarios = ['globalall', 'sepagg', 'bu']
+# scenarios = ['sepagg', 'bu']
+scenarios = ['bu']
 
+for scenario in scenarios:
+    for seed in seeds:
+        try:
+            df_seed = df_result.loc[(scenario, seed, slice(None), slice(None))]
+            # error_seed = calc_level_method_error(forecasts_methods=df_seed, actuals=targets, metric=metric)
+            sq_error = ((df_seed - targets.loc[:, df_seed.columns])**2).stack()
+            daily_error = np.sqrt(sq_error.groupby(["Method", time_index]).mean()).unstack(1)
+            daily_error.columns = np.arange(len(daily_error.columns)) // 7
+            daily_error = daily_error.stack()
+            daily_error.index.set_names(["Method", "Days"], inplace=True)
+            daily_error = daily_error.groupby(["Method", "Days"]).mean().unstack(1)
+            error_seed = pd.concat({f'{seed}': daily_error}, names=['Seed'])
+            error_seed = pd.concat({f"{scenario}": error_seed}, names=['Scenario'])
+            error = pd.concat((error, error_seed))
+        except:
+            pass
+
+error = error.groupby(["Method"]).mean()
+error /= error.loc['bu_objmse_evalmse']
+
+methods = [ 
+                'bu_objmse_evalmse',
+                'bu_objhse_evalhmse', 
+                'bu_objhse_evalhmse_withtemp',
+                'bu_objhse_evalhmse_withtemponly',
+                'bu_objrhse_evalhmse'
+                ]
+
+sns.lineplot(error.loc[methods].T)

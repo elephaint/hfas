@@ -45,8 +45,12 @@ def prepare_HierarchicalLoss(n_bottom_timeseries, n_bottom_timesteps,
     # Compute denominator and hessian
     denominator = denominator_c @ denominator_t
     hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
-    Scd = Sc.multiply(denominator_c).tocsc()
-    Std = St.multiply(denominator_t).tocsc()
+    if hasattr(df_Sc, 'sparse'):
+        Scd = Sc.multiply(denominator_c).tocsc()
+        Std = St.multiply(denominator_t).tocsc()
+    else:
+        Scd = Sc * denominator_c
+        Std = St * denominator_t.T
 
     return hessian, denominator, Sc, Scd, St, Std
 

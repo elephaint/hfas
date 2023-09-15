@@ -345,6 +345,10 @@ def opt_objective(trial, X, y, cv_iter, params, exp_name, sobj, seval, df_Sc, df
     if sobj == 'tweedie':
         trial_params_tweedie = {'tweedie_variance_power': trial.suggest_uniform('tweedie_variance_power', 1.1, 1.9)}
         trial_params.update(trial_params_tweedie)
+    # Set additional params for linear trees
+    if params['linear_tree'] == True:
+        trial_params_linear = {'linear_lambda': trial.suggest_loguniform('linear_lambda', 1e-8, 10.0)}
+        trial_params.update(trial_params_linear)
     best_score, best_iter = 0.0, 0
     n_folds = len(cv_iter)
     for train_index, val_index in cv_iter:
