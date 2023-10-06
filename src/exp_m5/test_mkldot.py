@@ -24,8 +24,6 @@ df['month'] = df['date'].dt.month
 df['day'] = df['date'].dt.day
 # Calculate cross-sectional and temporal hierarchy summing matrices
 df_Sc = hierarchy_cross_sectional(df, cross_sectional_aggregations, sparse=True, name_bottom_timeseries=name_bottom_timeseries)
-if store_level:
-    df_Sc = df_Sc.drop('item_id_enc') 
 df_St = hierarchy_temporal(df, time_index, temporal_aggregations, sparse=True)
 df = df.drop(columns = ['week', 'year', 'month', 'day'])
 #%% Objective
