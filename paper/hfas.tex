@@ -216,7 +216,7 @@ We now construct a matrix of bottom-level forecasts \(\hat{\textbf{Y}} \in \math
 \end{equation}
 in which \(\tilde{\textbf{Y}} \in \mathbb{R}^{m^c \times m^t}\) represents the matrix of forecasts aggregated according to both cross-sectional and temporal hierarchies. Equivalently, we can aggregate our bottom-level ground truth values \(\bar{\textbf{Y}} \in \mathbb{R}^{n^c \times n^t}\):
 \begin{equation}
-  \textbf{Y} = S^c \bar{\textbf{Y}} (S^t)^\intercal \;.
+  \textbf{Y} = S^c \bar{\textbf{Y}} (S^t)^\intercal \;. \label{eq:hfp_tc_gt} 
 \end{equation}
 
 \paragraph{Sparse hierarchical loss} To find the best forecasts for the hierarchical forecasting problem \eqref{eq:hfp_tc}, we try to find a model \(f(\cdot)\) by gradient-based optimization of the following loss function:
@@ -287,11 +287,13 @@ and the gradient of the loss with respect to the bottom level time series \eqref
 \end{align*}
 When we compare this result to the standard squared error loss gradient \eqref{eq:sqloss_grad}, we find that we \textit{smooth} the bottom-level gradient by adding to it portions of the gradients of all cross-sectional and temporal aggregations the bottom-level series belongs to. This derivation also shows the motivation of adding the denominator parts \(d^c\) and \(d^t\) to the loss function \eqref{eq:whloss}: it is neccessary to scale the aggregation gradients by the number of elements in the aggregation, otherwise the magnitude of the gradient grows with the number of time series and the number of levels in the hierarchy, which is undesirable when trying to facilitate stable learning.
   
-\paragraph{Sparsity} \(S^c\) and \(S^t\) are highly sparse. For example, \(S^c\) has only \(n^cl^c\) non-zero elements: the number of bottom-level time series multiplied by the number of aggregations in the hierarchy. Hence, the overall sparsity of \(S^c\) is given by \( 1 - \frac{n^cl^c}{m^cn^c} \). For the M5 dataset \cite{makridakis_m5_2021}, \(n^c = 3,049\), \(l^c = 12\), \(m^c=42,840\), corresponding to a sparsity of 99.97\%. This motivates the use of sparse linear algebra when computing Equations~\eqref{eq:whloss}-\eqref{eq:hfpbu_hess}.
+\paragraph{Sparsity} \(S^c\) and \(S^t\) are highly sparse. For example, \(S^c\) has only \(n^cl^c\) non-zero elements: the number of bottom-level time series multiplied by the number of aggregations in the hierarchy. Hence, the overall sparsity of \(S^c\) is given by \( 1 - \frac{n^cl^c}{m^cn^c} \). For the M5 dataset \cite{makridakis_m5_2021}, \(n^c = 3,049\), \(l^c = 12\), \(m^c=42,840\), corresponding to a sparsity of 99.97\%. Next, the matrix of bottom-level ground truth values \(\bar{\textbf{Y}}\) in \eqref{eq:hfp_tc_gt} may be sparse too, for example in case of products that are not on sale for every timestep \(n^t\) in the dataset. All these sources of sparsity motivate the use of sparse linear algebra when computing Equations~\eqref{eq:whloss}-\eqref{eq:hfpbu_hess}. 
 
-\paragraph{Implementation} We implement the hierachical loss \eqref{eq:whloss}, the bottom-level gradient \eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess} in Python using the sparse library from \textit{SciPy} \cite{virtanen_scipy_2020}. Our implementation, including the code to reproduce the experiments from Section~\ref{sec:experiments}, is available on GitHub.\footnote{[TAKEN OUT FOR ANONYMIZATION]}
-
-\ssc{Maybe we could add some more details here?}
+\paragraph{Implementation} We implement the hierachical loss \eqref{eq:whloss}, the bottom-level gradient \eqref{eq:hfp_grad}-\eqref{eq:hfpbu_grad} and hessian \eqref{eq:hfpbu_hess} in Python using the sparse library from \textit{SciPy} \cite{virtanen_scipy_2020}. Note that equations \eqref{eq:hfp_grad}-\eqref{eq:hfpbu_grad} can be rearranged:
+\begin{equation} 
+  \frac{\partial L}{\partial \hat{\textbf{Y}}} = \frac{(S^c)^\intercal}{d^c} \left( \tilde{\textbf{Y}} - \textbf{Y} \right) \frac{S^t}{(d^t)^\intercal} \;,
+\end{equation}
+such that the parts before and after the brackets can be precomputed as they do not depend on the forecast values \(\tilde{\textbf{Y}}\), avoiding a costly division operation inside a training iteration. Also note that the hessian \eqref{eq:hfpbu_hess} does not depend on the forecast values \(\tilde{\textbf{Y}}\), so it can be precomputed as well. Our implementation, including the code to reproduce the experiments on public data from Section~\ref{sec:experiments}, is available on GitHub.\footnote{[TAKEN OUT FOR ANONYMIZATION]}
 
 \section{Experiments}
   \label{sec:experiments}
@@ -538,19 +540,19 @@ When we compare this result to the standard squared error loss gradient \eqref{e
   
   \paragraph{Experimental setup} We replace the TL with our HL and investigate forecasting performance on the test set. For the HL, we use the proprietary aggregations \textit{product\_group} and \textit{seasonality\_group}, each containing respectively $\pm$70 and $\pm$6,000 unique values. We have \(n^c = \pm5\)M bottom-level time series and \(m^{c,*} = \pm6,070\) aggregated time series across \(l^c = 4\) levels: \textit{product} (bottom-level), \textit{product\_group}, \textit{seasonality\_group} and \textit{total}.
 
-  \paragraph{Results} On average, we find our sparse HL outperforms the existing TL model by about 1-2\% on RMSE and \(\pm\)10\% on MAE. We further investigate the performance by investigating how the RMSE and MAE varies across the 12 forecasting horizons and sales buckets and present the results in Figure~\ref{fig:bol_results}. We find that our sparse HL performs best on both RMSE and MAE on the lower sales buckets (up to 100 products sold per week), where it outperforms the TL averaged over all the forecasting horizons. The TL is clearly better for higher sales buckets, commonly outperforming the HL and SL by up to 5\%. Next, we investigate forecasting performance across the cross-sectional hierarchies that we defined. We show the results in Figure~\ref{fig:bol_level_results}. We find that for most forecasting horizons, the HL and SL outperform the TL, with an average outperformance of the HL over the TL of \(\pm\)10\% at the  product level, \(\pm\)5\% at product group level and \(\pm\)4-7\% at seasonality group level. Hence, we are able to confirm some of the results we found in the M5 experiment, although the baseline SL performed quite strong in this experiment as well. We believe this is due to the M5 experiment having much more hierarchical levels (12 as compared to the 4 we used for our private dataset experiment), since the HL is equal to the SL in case of no hierarchies, and with fewer hierarchies the HL thus becomes closer to the SL. Hence, we believe our HL is most useful in settings with both many timeseries as well as many hierarchies.
+  \paragraph{Results} On average, we find our sparse HL outperforms the existing TL model by about 1-2\% on RMSE and \(\pm\)10\% on MAE. We further investigate the performance by investigating how the RMSE and MAE varies across the 12 forecasting horizons and weekly demand buckets and present the results in Figure~\ref{fig:bol_results}. We find that our sparse HL performs best on both RMSE and MAE on the lower weekly demand buckets (up to 100 products sold per week), where it outperforms the TL averaged over all the forecasting horizons. The TL is clearly better for higher weekly demand  buckets, commonly outperforming the HL and SL by up to 5\%. Next, we investigate forecasting performance across the cross-sectional hierarchies that we defined. We show the results in Figure~\ref{fig:bol_level_results}. We find that for most forecasting horizons, the HL and SL outperform the TL, with an average outperformance of the HL over the TL of \(\pm\)10\% at the  product level, \(\pm\)5\% at product group level and \(\pm\)4-7\% at seasonality group level. Hence, we are able to confirm some of the results we found in the M5 experiment, although the baseline SL performed quite strong in this experiment as well. We believe this is due to the M5 experiment having much more hierarchical levels (12 as compared to the 4 we used for our private dataset experiment), since the HL is equal to the SL in case of no hierarchies, and with fewer hierarchies the HL thus becomes closer to the SL. Hence, we believe our HL is most useful in settings with both many timeseries as well as many hierarchies.
   To conclude, we find that this experiment demonstrates the usefulness of our sparse HL applied to a production forecasting system at a major e-commerce platform.
 
   \begin{figure*}[t] 
-    \subfigure[RMSE]{\includegraphics[width=\columnwidth]{assets/bol_rmse.png}} \quad
-    \subfigure[MAE]{\includegraphics[width=\columnwidth]{assets/bol_mae.png}}
-    \caption{Forecasting results for the primary product forecasting model at our e-commerce partner bol.com. We show RMSE and MAE by sales bucket relative to the Tweedie Loss baseline for each forecasting horizon (week).}
+    \subfigure[RMSE]{\includegraphics[width=\columnwidth]{assets/bol_rmse.pdf}} \quad
+    \subfigure[MAE]{\includegraphics[width=\columnwidth]{assets/bol_mae.pdf}}
+    \caption{Forecasting results for the primary product forecasting model at our e-commerce partner bol.com. We show RMSE and MAE by weekly demand bucket relative to the Tweedie Loss baseline for each forecasting horizon (week). The Hierarchical Loss outperforms the Tweedie Loss on RMSE and MAE on smaller weekly demand buckets.}
     \label{fig:bol_results}
   \end{figure*}
 
   \begin{figure}[t] 
-    \includegraphics[width=\columnwidth, keepaspectratio]{assets/bol_levels.png}
-    \caption{Forecasting results for the primary product forecasting model at our e-commerce partner bol.com. We show RMSE and MAE by aggregation level relative to the Tweedie Loss baseline for each forecasting horizon (week).}
+    \includegraphics[width=\columnwidth, keepaspectratio]{assets/bol_levels.pdf}
+    \caption{Forecasting results for the primary product forecasting model at our e-commerce partner bol.com. We show RMSE and MAE by aggregation level relative to the Tweedie Loss baseline for each forecasting horizon (week). The Hierarchical Loss commonly outperforms the Tweedie Loss on every aggregation level.}
     \label{fig:bol_level_results}
   \end{figure}
 
