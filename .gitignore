@@ -144,7 +144,7 @@ temp/
 *.aux
 *.log
 *.toc
-*.pdf
+# *.pdf
 *.fdb_latexmk
 *.synctex.gz
 *.bbl
