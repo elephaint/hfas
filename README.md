@@ -3,6 +3,9 @@
 _Hierarchical Forecasting at Scale_ (HFAS) employs sparse matrix operations to enable computationally efficient hierarchical forecasting. 
 
 ### Reference ###
+[Olivier Sprangers](mailto:o.r.sprangers@uva.nl), Wander Wadman, Sebastian Schelter, Maarten de Rijke. [Hierarchical Forecasting at Scale](https://arxiv.org/abs/2106.01682). Under submission.
+
+The experiments from our paper can be replicated by running the scripts in the [src](https://github.com/elephaint/hfas/tree/main/src/) folder. 
 
 ### License ###
 This project is licensed under the terms of the [Apache 2.0 license](https://github.com/elephaint/hfas/blob/main/LICENSE).
