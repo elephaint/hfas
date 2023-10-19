@@ -154,3 +154,9 @@ temp/
 *.nav
 *.out
 *.fls
+bol/
+paper/
+exp_bol/
+exp_mobility/
+exp_synthetic/
+exp_tourism/
