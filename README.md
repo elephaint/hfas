@@ -1,4 +1,4 @@
-# HFAS <img src="https://icai.ai/wp-content/uploads/2020/01/AIRLabAmsterdam-10-6-gecomprimeerd-transparant.png" width="300" alt="Airlab Amsterdam" align="right"> 
+# HFAS <img src="assets/airlab_logo.png" width="300" alt="Airlab Amsterdam" align="right"> 
 
 _Hierarchical Forecasting at Scale_ (HFAS) employs sparse matrix operations to enable computationally efficient hierarchical forecasting. 
 
