@@ -54,6 +54,38 @@ def prepare_HierarchicalLoss(n_bottom_timeseries, n_bottom_timesteps,
 
     return hessian, denominator, Sc, Scd, St, Std
 
+def prepare_RandomHierarchicalLoss(n_bottom_timeseries, n_bottom_timesteps,
+                                   max_levels_random,
+                                   max_categories_per_random_level, rng):
+    # Create random hierarchy
+    ones = np.ones(n_bottom_timeseries, dtype=np.float32)
+    idx_range = np.arange(n_bottom_timeseries)
+    n_levels_random = rng.integers(1, max_levels_random + 1)
+    S_aggs_list = []
+    for _ in range(n_levels_random):
+        n_categories_per_level = rng.integers(2, max_categories_per_random_level + 1)
+        codes = rng.integers(0, n_categories_per_level, size=(n_bottom_timeseries, ))
+        S_agg = csc_matrix((ones, (codes, idx_range)))
+        S_aggs_list.append(S_agg)
+    S_aggs = vstack(S_aggs_list)
+    # Create top and bottom level
+    S_top = csc_matrix(ones, dtype=np.float32)
+    S_bottom = eye(n_bottom_timeseries, dtype=np.float32)
+    # Construct S: stack top, aggregations and bottom 
+    Sc = vstack([S_top, S_aggs, S_bottom]).tocsc()
+    n_levels_c = Sc.sum() // Sc.shape[1]
+    denominator_c = 1 / (n_levels_c * np.sum(Sc, axis=1)).A
+    # Create St
+    St = eye(n_bottom_timesteps, dtype=np.float32)
+    denominator_t = np.full((1, n_bottom_timesteps), fill_value=1, dtype=np.float32)       
+    # Compute denominator and hessian
+    denominator = denominator_c @ denominator_t
+    hessian = ((Sc.T @ denominator) @ St.T).T.reshape(-1)
+    Scd = Sc.multiply(denominator_c).tocsc()
+    Std = St.multiply(denominator_t).tocsc()
+
+    return hessian, denominator, Sc, Scd, St, Std
+
 def HierarchicalLossObjective(preds, train_data, hessian,  
                               n_bottom_timeseries, n_bottom_timesteps, 
                               Sc=None, Scd=None, St=None, Std=None):

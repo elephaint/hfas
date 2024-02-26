@@ -10,10 +10,10 @@ from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
 sys.path.append(str(CURRENT_PATH.parents[2]))
 from hierts.reconciliation import aggregate_bottom_up_forecasts
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, vstack, eye
 from lightgbm import early_stopping, log_evaluation
 from functools import partial
-from src.lib import prepare_HierarchicalLoss, HierarchicalLossObjective, HierarchicalLossMetric, RandomHierarchicalLossObjective
+from src.lib import prepare_HierarchicalLoss, prepare_RandomHierarchicalLoss, HierarchicalLossObjective, HierarchicalLossMetric, RandomHierarchicalLossObjective
 warnings.filterwarnings('ignore')
 #%% Setting 1: A single global model that forecasts all timeseries (bottom level AND aggregates)
 def exp_m5_globalall(X, Xind, targets, target, time_index, end_train, start_test, df_Sc, df_St, 
@@ -206,6 +206,34 @@ def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
                                                          n_bottom_timesteps=n_bottom_timesteps, 
                                                          df_Sc=df_Sc,
                                                          df_St=df_St)
+        elif exp_name == 'bu_objhse_evalhmse_random':
+            max_levels_random = params['max_levels_random']
+            max_categories_per_random_level = params['max_categories_per_random_level']
+            rng = np.random.default_rng(seed=seed)
+            hessian, denominator, Sc, Scd, St, Std = prepare_RandomHierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         max_levels_random=max_levels_random,
+                                                         max_categories_per_random_level=max_categories_per_random_level,
+                                                         rng=rng)
+            St = None
+        elif exp_name == 'bu_objhse_evalhmse_softmax':
+            softmax_temperature = params['softmax_temperature']
+            Sc = df_Sc.sparse.to_coo().tocsr().astype(np.float32)
+
+
+
+            hessian, denominator, Sc, Scd, St, Std = prepare_HierarchicalLoss(n_bottom_timeseries=n_bottom_timeseries, 
+                                                         n_bottom_timesteps=n_bottom_timesteps, 
+                                                         df_Sc=df_Sc,
+                                                         df_St=None)
+            St = None            
+            rng = np.random.default_rng(seed=seed)
+            permutation_rate = params['permutation_rate']
+            Sc = df_Sc.sparse.to_coo().tocsr().astype(np.float32)
+            Sc_levels = Sc[1:-n_bottom_timeseries]
+            ix = rng.choice([True, False], size=Sc_levels.shape, replace=True, p=[permutation_rate, 1 - permutation_rate])
+            Sc
+
         else:
             raise NotImplementedError
 
@@ -224,7 +252,7 @@ def set_objective(params, exp_name, sobj, df_Sc=None, df_St=None, seed=0):
                        n_bottom_timeseries=n_bottom_timeseries, max_levels_random=max_levels_random, 
                        max_categories_per_random_level=max_categories_per_random_level, 
                        hier_freq=hier_freq)
-
+                
     return params, fobj
 
 def set_metric(params, exp_name, seval, df_Sc=None, df_St=None):

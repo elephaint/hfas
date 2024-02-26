@@ -78,7 +78,10 @@ def create_forecast_set(df, df_S, aggregation_cols, time_index, target, forecast
     first_lag = 1 + forecast_day
     group = X.groupby(['Aggregation', 'Value'])[f'{target}_lag{first_lag}']
     for window in windows:
-        X[f'{target}_lag{first_lag}_mavg{window}'] = group.transform(lambda x: x.rolling(window, min_periods=1).mean()).astype('float32')
+        # X[f'{target}_lag{first_lag}_mavg{window}'] = group.transform(lambda x: x.rolling(window, min_periods=1).mean()).astype('float32')
+        rolling_target = group.rolling(window, min_periods=1).mean().astype('float32').droplevel([0, 1])
+        rolling_target.name = f'{target}_lag{first_lag}_mavg{window}'
+        X = pd.concat((X, rolling_target), axis=1)
     # Add weekday and target
     level_values = X.index.get_level_values(time_index)
     X['dayofweek'] = (level_values.isocalendar().day).values

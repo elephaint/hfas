@@ -35,8 +35,8 @@ default_params = {'seed': 0,
                   'verbosity': -1,
                   'tuning': True,
                   'n_validation_sets': 3,
-                  'max_levels_random': 2,
-                  'max_categories_per_random_level': 1000,
+                  'max_levels_random': 10,
+                  'max_categories_per_random_level': 100,
                   'n_days_test': 28,
                   'n_years_train': 3,
                   'reset_feature_fraction': False,
@@ -56,89 +56,92 @@ aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregati
 df = df.drop(columns = ['week', 'year', 'month', 'day'])
 X, Xind, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target, forecast_day=0)
 #%% Setting 1: global models for all time series
-experiments_global = [{'exp_name':'globalall_objse_evalmse'}]
-for experiment in experiments_global:
-    df_result = pd.DataFrame()
-    df_result_timings = pd.DataFrame()
-    for seed in range(n_seeds):
-        exp_name = experiment['exp_name']
-        params = default_params.copy()
-        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
-                                                                        start_test, df_Sc, df_St, exp_name=exp_name, 
-                                                                        params=params, exp_folder=exp_folder, seed=seed)
-        # Apply reconciliation methods
-        forecasts_test = forecast_seed.loc[:, start_test:]
-        forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
-                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
-        # Add result to result df
-        dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
-        df_result = pd.concat((df_result, dfc))
-        # Add timings to timings df
-        df_seed = pd.DataFrame({'t_train':t_train_seed, 't_predict':t_predict_seed}, index=[seed])
-        df_reconciliation = pd.DataFrame(t_reconciliation_seed, index=[seed])
-        df_result_timings = pd.concat((df_result_timings, pd.concat((df_seed, df_reconciliation), axis=1)))
-    # Save
-    df_result.columns = df_result.columns.astype(str)
-    df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}.parquet")))
-    df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")))
+# experiments_global = [{'exp_name':'globalall_objse_evalmse'}]
+# for experiment in experiments_global:
+#     df_result = pd.DataFrame()
+#     df_result_timings = pd.DataFrame()
+#     for seed in range(n_seeds):
+#         exp_name = experiment['exp_name']
+#         params = default_params.copy()
+#         forecast_seed, t_train_seed, t_predict_seed =  exp_m5_globalall(X, Xind, targets, target, time_index, end_train, 
+#                                                                         start_test, df_Sc, df_St, exp_name=exp_name, 
+#                                                                         params=params, exp_folder=exp_folder, seed=seed)
+#         # Apply reconciliation methods
+#         forecasts_test = forecast_seed.loc[:, start_test:]
+#         forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
+#                         methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
+#         # Add result to result df
+#         dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
+#         df_result = pd.concat((df_result, dfc))
+#         # Add timings to timings df
+#         df_seed = pd.DataFrame({'t_train':t_train_seed, 't_predict':t_predict_seed}, index=[seed])
+#         df_reconciliation = pd.DataFrame(t_reconciliation_seed, index=[seed])
+#         df_result_timings = pd.concat((df_result_timings, pd.concat((df_seed, df_reconciliation), axis=1)))
+#     # Save
+#     df_result.columns = df_result.columns.astype(str)
+#     df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_test.parquet")))
+#     df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_test_timings.csv")))
 #%% Setting 2: separate model for each aggregation in the hierarchy
-experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
-for experiment in experiments_agg:
-    df_result = pd.DataFrame()
-    df_result_timings = pd.DataFrame()
-    for seed in range(n_seeds):
-        exp_name = experiment['exp_name']
-        params = default_params.copy()
-        forecast_seed, t_train_seed, t_predict_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
-                                                                     start_test, df_Sc, df_St, exp_name=exp_name, 
-                                                                     params=params, exp_folder=exp_folder, seed=seed)
-        experiment[f'forecast_seed_{seed}'] = forecast_seed
-        # Apply reconciliation methods
-        forecasts_test = forecast_seed.loc[:, start_test:]
-        forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
-                        methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
-        # Add result to result df
-        dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
-        df_result = pd.concat((df_result, dfc))
-        # Add timings to timings df
-        df_seed = pd.DataFrame({'t_train':t_train_seed, 't_predict':t_predict_seed}, index=[seed])
-        df_reconciliation = pd.DataFrame(t_reconciliation_seed, index=[seed])
-        df_result_timings = pd.concat((df_result_timings, pd.concat((df_seed, df_reconciliation), axis=1)))
-    # Save
-    df_result.columns = df_result.columns.astype(str)
-    df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}.parquet")))
-    df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")))
+# experiments_agg = [{'exp_name':'sepagg_objse_evalmse'}]
+# for experiment in experiments_agg:
+#     df_result = pd.DataFrame()
+#     df_result_timings = pd.DataFrame()
+#     for seed in range(n_seeds):
+#         exp_name = experiment['exp_name']
+#         params = default_params.copy()
+#         forecast_seed, t_train_seed, t_predict_seed =  exp_m5_sepagg(X, Xind, targets, target, time_index, end_train, 
+#                                                                      start_test, df_Sc, df_St, exp_name=exp_name, 
+#                                                                      params=params, exp_folder=exp_folder, seed=seed)
+#         experiment[f'forecast_seed_{seed}'] = forecast_seed
+#         # Apply reconciliation methods
+#         forecasts_test = forecast_seed.loc[:, start_test:]
+#         forecasts_methods, t_reconciliation_seed = apply_reconciliation_methods(forecasts_test, df_Sc, targets.loc[:, :end_train], forecast_seed.loc[:, :end_train],
+#                         methods = ['ols', 'wls_struct', 'wls_var', 'mint_shrink', 'erm'], positive=True, return_timing=True)
+#         # Add result to result df
+#         dfc = pd.concat({f'{seed}': forecasts_methods}, names=['Seed'])
+#         df_result = pd.concat((df_result, dfc))
+#         # Add timings to timings df
+#         df_seed = pd.DataFrame({'t_train':t_train_seed, 't_predict':t_predict_seed}, index=[seed])
+#         df_reconciliation = pd.DataFrame(t_reconciliation_seed, index=[seed])
+#         df_result_timings = pd.concat((df_result_timings, pd.concat((df_seed, df_reconciliation), axis=1)))
+#     # Save
+#     df_result.columns = df_result.columns.astype(str)
+#     df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}.parquet")))
+#     df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")))
 
 #%% Setting 3: global models for bottom-up series
 experiments_bu = [
-                    {'exp_name':'bu_objmse_evalmse',
-                    'sobj':'l2',
-                    'seval':'l2'},
-                    {'exp_name':'bu_objmse_evalhmse',
-                    'sobj':'l2',
-                    'seval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objtweedie_evalmse',
-                    'sobj':'tweedie',
-                    'seval':'l2'},
-                    {'exp_name':'bu_objtweedie_evalhmse',
-                    'sobj':'tweedie',
-                    'seval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objtweedie_evaltweedie',
-                    'sobj':'tweedie',
-                    'seval': 'tweedie'},
-                    {'exp_name':'bu_objhse_evalhmse',
-                    'sobj': 'hierarchical_obj_se',
-                    'seval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalmse',
-                    'sobj': 'hierarchical_obj_se',
-                    'seval': 'l2'},
-                    {'exp_name':'bu_objrhse_evalhmse',
-                    'sobj': 'hierarchical_obj_se_random',
-                    'seval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalhmse_withtemp',
-                    'sobj': 'hierarchical_obj_se',
-                    'seval': 'hierarchical_eval_hmse'},
-                    {'exp_name':'bu_objhse_evalhmse_withtemponly',
+                    # {'exp_name':'bu_objmse_evalmse',
+                    # 'sobj':'l2',
+                    # 'seval':'l2'},
+                    # {'exp_name':'bu_objmse_evalhmse',
+                    # 'sobj':'l2',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objtweedie_evalmse',
+                    # 'sobj':'tweedie',
+                    # 'seval':'l2'},
+                    # {'exp_name':'bu_objtweedie_evalhmse',
+                    # 'sobj':'tweedie',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objtweedie_evaltweedie',
+                    # 'sobj':'tweedie',
+                    # 'seval': 'tweedie'},
+                    # {'exp_name':'bu_objhse_evalhmse',
+                    # 'sobj': 'hierarchical_obj_se',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalmse',
+                    # 'sobj': 'hierarchical_obj_se',
+                    # 'seval': 'l2'},
+                    # {'exp_name':'bu_objrhse_evalhmse',
+                    # 'sobj': 'hierarchical_obj_se_random',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalhmse_withtemp',
+                    # 'sobj': 'hierarchical_obj_se',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    # {'exp_name':'bu_objhse_evalhmse_withtemponly',
+                    # 'sobj': 'hierarchical_obj_se',
+                    # 'seval': 'hierarchical_eval_hmse'},
+                    {'exp_name':'bu_objhse_evalhmse_random',
                     'sobj': 'hierarchical_obj_se',
                     'seval': 'hierarchical_eval_hmse'},
                     ]
@@ -165,6 +168,6 @@ for experiment in experiments_bu:
         df_seed = pd.DataFrame({'t_train':t_train_seed, 't_predict':t_predict_seed}, index=[seed])
         df_result_timings = pd.concat((df_result_timings, df_seed))
     # Save
-    df_result.columns = df_result.columns.astype(str)
-    df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}.parquet")))
-    df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")))
+    # df_result.columns = df_result.columns.astype(str)
+    # df_result.to_parquet(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}.parquet")))
+    # df_result_timings.to_csv(str(CURRENT_PATH.joinpath(f"{exp_folder}/{exp_name}_timings.csv")))
