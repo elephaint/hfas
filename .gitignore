@@ -139,6 +139,9 @@ temp/
 *.pkl
 *.docx
 *.model
+!sell_prices.parquet
+!sales_train_evaluation.parquet
+!calendar.parquet
 
 # Latex
 *.aux

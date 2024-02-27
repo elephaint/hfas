@@ -19,8 +19,8 @@
 #%% Import packages
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-pd.set_option('display.width', 800)
-pd.set_option('display.max_columns', 15)
+from pathlib import Path
+CURRENT_PATH = Path(__file__).parent
 #%% Reduce memory
 def reduce_mem(df):
     cols = df.columns
@@ -49,9 +49,9 @@ def reduce_mem(df):
             
     return df
 #%% 1) Read datasets
-df_calendar = pd.read_csv('src/exp_m5/data/calendar.csv').fillna("None").convert_dtypes() # NaN's only in event fields, so fill with None string
-df_sales = pd.read_csv('src/exp_m5/data/sales_train_evaluation.csv').convert_dtypes()
-df_prices = pd.read_csv('src/exp_m5/data/sell_prices.csv').convert_dtypes()
+df_calendar = pd.read_parquet('src/exp_m5/data/calendar.parquet')
+df_sales = pd.read_parquet('src/exp_m5/data/sales_train_evaluation.parquet')
+df_prices = pd.read_parquet('src/exp_m5/data/sell_prices.parquet')
 #%% 2) Label encoding of categorical information sales data
 # https://stackoverflow.com/questions/24458645/label-encoding-across-multiple-columns-in-scikit-learn
 df_itemids = df_sales[['id','item_id','dept_id','cat_id','store_id','state_id']].copy()
@@ -104,7 +104,7 @@ df = df.merge(df_itemids[['id','id_enc', 'item_id_enc', 'dept_id_enc', 'cat_id_e
 df = reduce_mem(df)
 #%% 5b) Add selling prices, fill nans.
 df = df.merge(df_prices, how='left', right_on=['item_id_enc','store_id_enc','wm_yr_wk'], left_on = ['item_id_enc','store_id_enc','wm_yr_wk'])
-df['sell_price'] = df['sell_price'].fillna(method='bfill')
+df['sell_price'] = df['sell_price'].bfill()
 df['weeks_on_sale'] = df['weeks_on_sale'].fillna(0)
 #%% Change order of features - this is convenient for later on
 # Everything up to 'date' is fixed for each day, thereafter is variable
@@ -131,4 +131,5 @@ df['id'] = df['id'].astype('O')
 df = df.sort_values(by=['store_id_enc','item_id_enc','date'])
 df = df.reset_index(drop=True)
 filename = 'm5_dataset_products.parquet'
-df.to_parquet(filename)
+filepath = CURRENT_PATH.joinpath(filename)
+df.to_parquet(filepath)
