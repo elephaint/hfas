@@ -22,4 +22,4 @@ The experiments on the public M5 dataset from our paper can be replicated by run
 This project is licensed under the terms of the [Apache 2.0 license](https://github.com/elephaint/hfas/blob/main/LICENSE).
 
 ### Acknowledgements ###
-This project was developed by [Airlab Amsterdam](https://icai.ai/airlab/).
+This project was developed by [Airlab Amsterdam](https://www.icai.ai/labs/airlab-amsterdam).
