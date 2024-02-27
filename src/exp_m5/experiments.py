@@ -8,7 +8,7 @@ import warnings
 import sys
 from pathlib import Path
 CURRENT_PATH = Path(__file__).parent
-sys.path.append(str(CURRENT_PATH.parents[2]))
+sys.path.append(str(CURRENT_PATH.parents[1]))
 from hierts.reconciliation import aggregate_bottom_up_forecasts
 from scipy.sparse import csc_matrix, vstack, eye
 from lightgbm import early_stopping, log_evaluation

@@ -42,6 +42,7 @@ default_params = {'seed': 0,
                   'reset_feature_fraction': False,
                   'reset_feature_fraction_value': 1.0}
 #%% Read data
+print("Loading data")
 df = read_m5(store_level=store_level, store_id=store_id)
 # Add columns for temporal hierarchies
 df['week'] = df['date'].dt.isocalendar().week
@@ -56,6 +57,7 @@ aggregation_cols = list(dict.fromkeys([col for cols in cross_sectional_aggregati
 df = df.drop(columns = ['week', 'year', 'month', 'day'])
 X, Xind, targets = create_forecast_set(df, df_Sc, aggregation_cols, time_index, target, forecast_day=0)
 #%% Setting 1: global models for all time series
+print("Start training")
 experiments_global = [{'exp_name':'globalall_objse_evalmse'}]
 for experiment in experiments_global:
     df_result = pd.DataFrame()
