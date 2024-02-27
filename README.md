@@ -15,7 +15,7 @@ The experiments on the public M5 dataset from our paper can be replicated by run
 6. Run `preprocessing.py` to preprocess the M5 dataset: `python src\exp_m5\data\preprocessing.py`. This will create a file called `m5_dataset_products.parquet` in the folder `src\exp_m5\data`.
 7. Run the LightGBM experiments: `python src\exp_m5\run_experiments.py`
 8. Run the traditional statistical model experiments: `python src\exp_m5\train_traditional.py`
-9. Evaluate the results: `python src\exp_m5\evaluate.py`. This will create five files: `rmse_mean.csv`, `rmse_std.csv`, `mae_mean.csv`, `mae_std.csv` and `bu_error_by_7d_period.csv`. These files contain the numerical values used to construct the tables in the paper.
+9. Evaluate the results: `python src\exp_m5\evaluate.py`. This will create five files: `rmse_mean.csv`, `rmse_std.csv`, `mae_mean.csv`, `mae_std.csv` and `bu_error_by_7d_period.csv`. These files contain the numerical values used to construct the tables in the paper. The tables are contained in the file `src\exp_m5\exp2_allstores\lr0.05\tables.xlsx`.
 10. The code for the figures in the paper is contained in `src\exp_m5\evaluate.py`.
 
 ### License ###

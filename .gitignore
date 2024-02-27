@@ -163,3 +163,5 @@ exp_bol/
 exp_mobility/
 exp_synthetic/
 exp_tourism/
+src/exp_m5/exp1_storeid=0/
+src/exp_m5/exp2_allstores/lr0.1/
