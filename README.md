@@ -2,6 +2,9 @@
 
 _Hierarchical Forecasting at Scale_ (HFAS) employs sparse matrix operations to enable computationally efficient hierarchical forecasting. 
 
+### Example ###
+See the [mobility example](https://github.com/elephaint/hfas/tree/main/src/exp_mobility) for an example of how we can employ our sparse hierarchical loss function to improve forecasts across all levels of a hierarchy.
+
 ### Reference ###
 [Olivier Sprangers](mailto:o.r.sprangers@uva.nl), Wander Wadman, Sebastian Schelter, Maarten de Rijke. [Hierarchical Forecasting at Scale](https://arxiv.org/abs/2310.12809). Under submission.
 
