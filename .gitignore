@@ -142,6 +142,9 @@ temp/
 !sell_prices.parquet
 !sales_train_evaluation.parquet
 !calendar.parquet
+!station.csv
+!trip.csv
+!weather.csv
 
 # Latex
 *.aux
@@ -160,7 +163,6 @@ temp/
 bol/
 paper/
 exp_bol/
-exp_mobility/
 exp_synthetic/
 exp_tourism/
 src/exp_m5/exp1_storeid=0/
